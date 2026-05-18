@@ -9,6 +9,16 @@ win_venv/
 # Local Results
 *results.csv
 
+# Experiment result directories
+artifact/results_1x_run/
+artifact/results_3x_runs/
+
+# SQLite databases
+*.db
+
+# Archive files
+*.tar.gz
+
 # Python
 __pycache__/
 *.py[cod]
