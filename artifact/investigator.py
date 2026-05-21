@@ -188,6 +188,8 @@ class InvestigateAgent:
         self.current_iteration = 0
         self.max_iterations = int(configs['max_questions'])
         self.max_tokens = int(configs['max_tokens'])
+        self.error_count = 0                                        # counts malformed <tool_call> XML responses
+        self.max_errors = int(configs.get('max_errors', constants.DEFAULT_MAX_ERRORS))
         self.graph = workflow.compile()
         self.tools = {t.name: t for t in tools}
         self.model_no_tools = llm
@@ -207,8 +209,11 @@ class InvestigateAgent:
                     return END
                 return "tools"
             elif '<tool_call>' in last_message.content or '</tool_call>' in last_message.content:
-                if self.current_iteration > self.max_iterations:
-                    print(f"{__name__}: Reached max iterations, model is not adhering to the workflow")
+                # Gemma 4 sometimes emits raw XML instead of structured tool calls.
+                # Increment error_count (NOT current_iteration) so this always converges.
+                self.error_count += 1
+                if self.error_count > self.max_errors or self.current_iteration > self.max_iterations:
+                    print(f"{__name__}: Exiting after {self.error_count} malformed tool calls (max={self.max_errors})")
                     return END
                 return "error"
         return END

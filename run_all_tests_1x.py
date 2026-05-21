@@ -55,6 +55,10 @@ class FullTestRunner:
             "--no-warn"
         ]
         
+        # Pass --resume if the outer script was called with it
+        if "--resume" in sys.argv:
+            cmd.append("--resume")
+        
         self.print_section(f"Testing {display_name} ({test_count} tests)")
         print(f"Command: {' '.join(cmd)}")
         print(f"Output: {output_csv.name}")
@@ -64,7 +68,7 @@ class FullTestRunner:
             result = subprocess.run(
                 cmd,
                 cwd=self.artifact_dir,
-                timeout=14400,  # 4 hour timeout per test type
+                timeout=259200,  # 72-hour timeout per test type (3-day window)
                 capture_output=False
             )
             duration = time.time() - start
@@ -77,7 +81,7 @@ class FullTestRunner:
                 return False
                 
         except subprocess.TimeoutExpired:
-            print(f"✗ {display_name} timed out after 4 hours")
+            print(f"✗ {display_name} timed out after 72 hours")
             return False
         except Exception as e:
             print(f"✗ {display_name} error: {e}")
@@ -94,7 +98,7 @@ class FullTestRunner:
             print(f"  • {display_name}: {count} tests")
         
         print(f"\nTotal: {self.total_tests} unique tests")
-        print(f"Estimated time: ~10 hours")
+        print(f"Estimated time: ~24-72 hours at 35 tok/sec (Gemma 4 on DGX Spark)")
         print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"Run ID: {self.run_id}")
         

@@ -49,6 +49,8 @@ def create_llm_from_env(model: str, api_key: str, base_url: str | None) -> Tuple
             temperature=0,
             api_key=resolved_api_key,
             base_url=base_url,
+            timeout=600,      # 10 min — at 35 tok/sec, 2048 tokens = ~58s; only fires on vLLM stalls
+            max_retries=1,    # allow one retry on transient errors, never loop
         )
         return llm, "openai-compatible"
 
@@ -58,5 +60,5 @@ def create_llm_from_env(model: str, api_key: str, base_url: str | None) -> Tuple
             "For local vLLM, set BASE_URL and optionally API_KEY=local."
         )
 
-    llm = ChatOpenAI(model=model, temperature=0, api_key=api_key)
+    llm = ChatOpenAI(model=model, temperature=0, api_key=api_key, timeout=600, max_retries=1)
     return llm, "openai"
