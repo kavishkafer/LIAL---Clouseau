@@ -81,17 +81,95 @@ This file is the shared handoff surface for both developer progress and runtime 
   - `TEST_EXECUTION_GUIDE.md` - Complete guide to running tests
   - `COMMANDS_CHEAT_SHEET.md` - Quick reference for common commands
 
+### Phase 5: Hang Fix + Accuracy Improvements (Completed 2026-05-21)
+
+- Objective: Fix the 22-hour infinite hang observed on the 2nd DGX full-suite run, and
+  improve recall on IP-based investigations without reducing depth or accuracy.
+- Status: ✓ all fixes implemented, syntax-verified, committed and pushed (commit `9510556`).
+- Root Cause of Hang: Two compounding bugs caused the process to block indefinitely:
+  1. **Infinite error loop** — Gemma 4 natively emits `<tool_call>` XML instead of structured
+     function calls. Both `investigator.py` and `chief_inspector.py` caught this and routed to
+     an "error" node, but `current_iteration` only incremented on *successful* tool calls. The
+     error loop therefore spun forever without ever hitting the exit condition.
+  2. **No LLM call timeout** — every `llm.invoke()` across all three agent tiers had zero
+     timeout. If vLLM stalled (OOM, GPU pressure, context overflow), the process blocked
+     indefinitely with no recovery path.
+- Changes Made:
+
+  **`artifact/constants.py`** — new constants added (all existing defaults preserved):
+  - `DEFAULT_MAX_ERRORS = 10` — investigator max malformed `<tool_call>` XML responses
+  - `DEFAULT_CHIEF_MAX_ERRORS = 8` — chief inspector max malformed responses
+  - `IP_MAX_INVESTIGATIONS = 15` — deeper budget for IP POI (was 10)
+  - `IP_MAX_QUESTIONS = 12` — deeper budget for IP POI (was 10)
+  - `IP_MAX_QUERIES = 12` — deeper budget for IP POI (was 10)
+  - `DEFAULT_SCENARIO_TIMEOUT = 43200` — 12-hour dead-man switch per scenario
+
+  **`artifact/llm_factory.py`** — both `ChatOpenAI` clients updated:
+  - `timeout=600` — 10-minute per-call ceiling (at 35 tok/sec, 2048 tokens = ~58s; 600s
+    only fires on genuine vLLM stalls)
+  - `max_retries=1` — allows one transient-error retry; never loops
+
+  **`artifact/investigator.py`** — `InvestigateAgent` class:
+  - Added `self.error_count = 0` and `self.max_errors` to `__init__`
+  - `agent_router()`: increments `error_count` on every `<tool_call>` XML response (not just
+    when `current_iteration` is over budget); exits to `END` when `error_count > max_errors`
+  - Prevents the infinite error loop regardless of iteration budget state
+
+  **`artifact/chief_inspector.py`** — `Clouseau` class:
+  - Same `error_count` guard with `max_errors = DEFAULT_CHIEF_MAX_ERRORS = 8`
+  - On error limit exceeded, routes to `"eval"` (not `END`) so the chief always produces a
+    final report from whatever evidence it gathered before giving up
+
+  **`artifact/app.py`** — `run_scenarios()` rewritten, new helpers added:
+  - **IP POI budget boost**: when `poi_type == 'IP'`, uses `IP_MAX_*` constants instead of
+    defaults; directly targets the 11pp recall gap observed on s1_IP (6%) and se2_IP (1%)
+  - **`--resume` flag**: reads existing CSV output and skips tests already recorded; critical
+    for a 3-day run that may be interrupted — allows restart from checkpoint
+  - **Timestamped progress logging**: every test prints `[HH:MM:SS] ▶ Starting X (N/total)`
+    at start and `[HH:MM:SS] ✓ X — N min — saved to CSV` at completion; visible in tmux
+  - **12-hour safety-net timeout**: each individual scenario runs inside a
+    `ThreadPoolExecutor` with `timeout=DEFAULT_SCENARIO_TIMEOUT`; if the error_count guards
+    somehow still fail, the scenario is cancelled, zeros are written to CSV, and execution
+    continues to the next test (dead-man switch, not a performance target)
+  - **Startup summary**: prints all active settings (error limits, IP boost values, timeout)
+    at launch so the configuration is visible in logs
+
+  **`run_all_tests_1x.py`**:
+  - `timeout` per batch: `14400` (4h) → `259200` (72h); safe for a 3-day window
+  - `--resume` passthrough: if outer script is called with `--resume`, it forwards the flag
+    to each `app.py` subprocess
+  - Estimated time comment updated to reflect Gemma 4 at 35 tok/sec reality
+
+- How to Run on DGX:
+  ```bash
+  git pull
+  # Fresh full run
+  python run_all_tests_1x.py --no-prompt
+
+  # Resume an interrupted run
+  python run_all_tests_1x.py --no-prompt --resume
+  ```
+- Expected Accuracy Impact:
+  - IP POI failures (s1_IP: 6%, se2_IP: 1%) should improve with inv=15/q=12/sql=12 budget
+  - Multi-host M1-M6 and OpTC scenarios will now complete for the first time
+  - Overall F1 target: 90-95% (vs current 88.56% from 50/63 tests)
+  - Precision should remain stable (~98%)
+
 ### Next Actions (Priority Order)
 
-**Priority 1: Complete IT Baseline (Estimated 4-5 hours)**
-- Run Multi-Host scenarios: `python app.py --scenarios-mi`
-- Run DARPA OpTC scenarios: `python app.py --scenarios-optc`
-- This brings coverage to 63/63 (100%) and validates against paper
+**Priority 1: Re-run Full 63-Test Suite on DGX (Estimated 24-72 hours)**
+- Pull latest (`git pull`) on DGX, then:
+  ```bash
+  cd artifact && source /path/to/venv/bin/activate
+  python ../run_all_tests_1x.py --no-prompt
+  ```
+- Monitor via tmux: progress lines print every few minutes
+- If interrupted: re-run with `--resume` to continue from checkpoint
 
-**Priority 2: Optimize IP-Based Investigation (Estimated 2-3 hours)**
-- Debug why S1_IP and SE2_IP fail catastrophically (6% recall)
-- Increase hyperparameters for IP POI investigation
-- Retest: `python app.py --scenarios-si --max-investigations 15 --max-questions 15`
+**Priority 2: Analyze Full Results**
+- After completion: `python compare.py latest` to view all 63 tests
+- Focus on M1-M6 multi-host and OpTC (first-ever run of these scenarios)
+- Check if IP POI recall improved from the budget boost
 
 **Priority 3: Plan OT Extension (Estimated 2-3 weeks total)**
 - Phase A (Days 1-3): Profile DataSense dataset, design OT schema
@@ -100,18 +178,19 @@ This file is the shared handoff surface for both developer progress and runtime 
 - Phase D (Days 15-20): Write Clouseau-OT paper with full IT+OT evaluation
 - Expected outcome: Novel paper on first LLM-based IT+OT attack investigation system
 
-### Environment Notes (Current Status: 2026-05-07)
+### Environment Notes (Current Status: 2026-05-21)
 
 - Python: 3.12.10 in `.venv-clouseau` (verified working)
-- vLLM endpoint (DGX): `http://172.31.0.94:8000/v1` with `gemma-4-26b-moe` model (verified)
+- vLLM endpoint (DGX): `http://172.31.0.94:8000/v1` with `gemma-4-26b-moe` model
+- Hardware: 2× DGX Spark, ~35 tok/sec with Gemma-4-26B-MoE
 - All dependencies: installed and verified working ✅
-- Last test execution: 2026-04-28 (Run ID: 20260428_130914)
-  - Duration: 5.5 hours (3 claims, 50 total tests, 36 unique)
-  - Coverage: 57% (Claims 1-3 only, missing M1-M6 and OpTC)
-  - Success rate: 100%
+- Last successful test execution: 2026-04-28 (Run ID: 20260428_130914)
+  - Duration: 5.5 hours (Claims 1-3, 50 total tests, 36 unique)
+  - Coverage: 57% (missing M1-M6 and OpTC — these hung on the 2nd attempt)
   - Performance: 88.56% average F1 (Gemma-4-26B vs paper's 99.79% with GPT-4.1)
-- Test results: automatically logged in `artifact/test_logs/YYYYMMDD_HHMMSS/` with run metadata
+- Test results: automatically logged in `artifact/test_logs/YYYYMMDD_HHMMSS/`
 - Latest comparison: See `PERFORMANCE_COMPARISON.md` for detailed baseline analysis
+- Hang fix: committed `9510556` on 2026-05-21 — pull before next DGX run
 
 ## Runtime Log
 
@@ -128,7 +207,8 @@ Runtime logs from previous test executions have been archived. They are no longe
 - Model: Gemma-4-26B-MoE via local vLLM
 - Duration: 5.5 hours
 - Tests: 50 total (36 unique, Claims 1-3 only)
-- Coverage: 57% (missing M1-M6 and OpTC)
+- Coverage: 57% (missing M1-M6 and OpTC — hung on 2nd attempt, now fixed)
 - Average F1: 88.56% | Precision: 98.10% | Recall: 88.43%
 
-**Next full run target:** 63 tests × 3 runs = 189 executions (~30 hours) on DGX Spark using `run_all_tests_3x.py`.
+**Next full run target:** 63 tests (1x) to validate hang fix and IP boost, then 63 × 3 = 189
+executions using `run_all_tests_3x.py` for publication-quality statistics.
