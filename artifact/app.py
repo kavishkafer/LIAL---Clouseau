@@ -182,7 +182,9 @@ if __name__ == '__main__':
     parser.add_argument('--max-tokens', type=int, help='Maximum number of tokens per LLM response')
     parser.add_argument('--ablation-agent', action='store_true', help='Run ablation agent instead of Clouseau')
     parser.add_argument('--scenarios-si', action='store_true', help='Run ATLAS scenarios S1-S4')
-    parser.add_argument('--scenarios-ml', action='store_true', help='Run ATLAS scenarios M1-M6')
+    parser.add_argument('--scenarios-mi', '--scenarios-ml', action='store_true',
+                        dest='scenarios_mi',
+                        help='Run ATLAS scenarios M1-M6 (multi-host lateral movement)')
     parser.add_argument('--scenarios-se', action='store_true', help='Run ATLAS scenarios SE1-SE4')
     parser.add_argument('--scenarios-ss', action='store_true', help='Run ATLAS scenarios SS1-SS4')
     parser.add_argument('--scenarios-optc', action='store_true', help='Run generalizability scenarios OPTC1-OPTC3')
@@ -195,7 +197,7 @@ if __name__ == '__main__':
     # get system configs first
     ablation_agent = False
     scenarios_si = False
-    scenarios_ml = False
+    scenarios_mi = False   # multi-host M1-M6
     scenarios_se = False
     scenarios_ss = False
     scenarios_optc = False
@@ -215,8 +217,8 @@ if __name__ == '__main__':
 
     if args.scenarios_si:
         scenarios_si = True
-    if args.scenarios_ml:
-        scenarios_ml = True
+    if args.scenarios_mi:
+        scenarios_mi = True
     if args.scenarios_se:
         scenarios_se = True
     if args.scenarios_ss:
@@ -228,8 +230,8 @@ if __name__ == '__main__':
     if args.resume:
         resume = True
 
-    if not (scenarios_si or scenarios_ml or scenarios_se or scenarios_optc or scenarios_ss):
-        print("No scenarios selected. Use --scenarios-si, --scenarios-ml, --scenarios-se, --scenarios-ss, or --scenarios-optc to select scenarios.")
+    if not (scenarios_si or scenarios_mi or scenarios_se or scenarios_optc or scenarios_ss):
+        print("No scenarios selected. Use --scenarios-si, --scenarios-mi, --scenarios-se, --scenarios-ss, or --scenarios-optc to select scenarios.")
         exit(1)
     
 
@@ -276,8 +278,8 @@ if __name__ == '__main__':
         print("\nRunning ATLAS SI scenarios")
         run_scenarios(si_scn, llm, configs, ablation_agent, False, csv_file, resume=resume)
     
-    if scenarios_ml:
-        print("\nRunning ATLAS ML scenarios")
+    if scenarios_mi:
+        print("\nRunning ATLAS MI scenarios (M1-M6 multi-host)")
         run_scenarios(ml_scn, llm, configs, ablation_agent, False, csv_file, resume=resume)
     
     if scenarios_se:
