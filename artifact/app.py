@@ -167,7 +167,9 @@ def run_scenarios(scns: List, llm: ChatOpenAI, configs: Dict, ablation: bool, da
 
             # Evaluate and save (empty string on timeout/error → all-zero metrics)
             er = evaluate_report(poi_cfg, results if results is not None else "")
-            save_to_csv(er.get_pd(), csv_file)
+            df = er.get_pd()
+            df["duration_seconds"] = time.time() - t_start
+            save_to_csv(df, csv_file)
 
             status = "TIMEOUT" if timed_out else ("✓" if results is not None else "✗ ERROR")
             print(f"[{ts}] {status} {poi_cfg['test_name']} — {duration_min:.1f} min — saved to CSV")

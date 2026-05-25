@@ -125,7 +125,7 @@ class FullTestRunner:
         print(f"Run ID for reference: {self.run_id}")
         
         print(f"\nNext Steps:")
-        print(f"1. Review results: python compare.py show {self.run_id}")
+        print(f"1. Review results: View the output CSV files in {self.results_dir}/ or use average.py")
         print(f"2. View details: ls -la {self.results_dir}/")
         if successful == 5:
             print(f"3. Ready for 3x runs? Run: python run_all_tests_3x.py")
@@ -141,14 +141,25 @@ def main():
         print("ERROR: artifact/ directory not found")
         print("Please run this script from the Clouseau root directory")
         sys.exit(1)
+        
+    # Pre-flight dataset availability check
+    import subprocess
+    print("Running pre-flight dataset availability check...")
+    check_cmd = [sys.executable, "artifact/check_datasets.py"]
+    res = subprocess.run(check_cmd)
+    if res.returncode != 0:
+        print("\n[X] Pre-flight check failed: Some required datasets are missing.")
+        print("Please download/preprocess them before starting the evaluation suite.")
+        sys.exit(1)
+    print("[OK] All datasets verified. Starting tests.")
     
     try:
         if runner.run_full_suite():
-            print("\n✓ Full evaluation complete successfully!")
+            print("\n[OK] Full evaluation complete successfully!")
         else:
-            print("\n⚠ Some tests failed - check results above")
+            print("\n[WARNING] Some tests failed - check results above")
     except KeyboardInterrupt:
-        print("\n\n⚠ Testing interrupted by user")
+        print("\n\n[WARNING] Testing interrupted by user")
         sys.exit(1)
 
 if __name__ == "__main__":
