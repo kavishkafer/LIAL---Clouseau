@@ -153,7 +153,7 @@ class MasterTestRunner:
         all_csvs = list(self.results_dir.glob("run*_*.csv"))
         
         if not all_csvs:
-            print("⚠ No result CSVs found to aggregate")
+            print("[WARNING] No result CSVs found to aggregate")
             return None
         
         print(f"Found {len(all_csvs)} CSV files to aggregate")
@@ -163,9 +163,9 @@ class MasterTestRunner:
             try:
                 df = pd.read_csv(csv_file)
                 all_data.append(df)
-                print(f"  ✓ {csv_file.name}")
+                print(f"  [OK] {csv_file.name}")
             except Exception as e:
-                print(f"  ✗ {csv_file.name}: {e}")
+                print(f"  [X] {csv_file.name}: {e}")
         
         if not all_data:
             print("No valid CSVs to aggregate")
@@ -174,6 +174,16 @@ class MasterTestRunner:
         # Combine all data
         combined = pd.concat(all_data, ignore_index=True)
         
+        # Calculate metrics dynamically
+        combined["precision"] = combined["tp"] / (combined["tp"] + combined["fp"])
+        combined["recall"]    = combined["tp"] / (combined["tp"] + combined["fn"])
+        combined["fpr"]       = combined["fp"] / (combined["fp"] + combined["tn"])
+        combined["f1"]        = 2 * combined["precision"] * combined["recall"] / (combined["precision"] + combined["recall"])
+        combined["scenario_name"] = combined["test_name"].apply(lambda x: x.split("_")[0] if isinstance(x, str) else "")
+        combined.fillna(0, inplace=True)
+        if "duration_seconds" not in combined.columns:
+            combined["duration_seconds"] = 0
+
         # Group by test_name and calculate statistics
         print("\nCalculating averages by test...")
         grouped = combined.groupby('test_name').agg({
@@ -244,14 +254,25 @@ def main():
         print("ERROR: artifact/ directory not found")
         print("Please run this script from the Clouseau root directory")
         sys.exit(1)
+        
+    # Pre-flight dataset availability check
+    import subprocess
+    print("Running pre-flight dataset availability check...")
+    check_cmd = [sys.executable, "artifact/check_datasets.py"]
+    res = subprocess.run(check_cmd)
+    if res.returncode != 0:
+        print("\n[X] Pre-flight check failed: Some required datasets are missing.")
+        print("Please download/preprocess them before starting the 3x evaluation suite.")
+        sys.exit(1)
+    print("[OK] All datasets verified. Starting tests.")
     
     # Run all tests 3x
     if runner.run_all_3x():
         # Aggregate results
         runner.aggregate_results()
-        print("\n✓ Full evaluation complete!")
+        print("\n[OK] Full evaluation complete!")
     else:
-        print("\n✗ Evaluation failed")
+        print("\n[X] Evaluation failed")
         sys.exit(1)
 
 if __name__ == "__main__":
