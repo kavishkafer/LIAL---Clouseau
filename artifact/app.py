@@ -62,6 +62,7 @@ def save_to_csv(df: pd.DataFrame, results_file: str):
     # save the results to a csv file
     # put headers if it is the first time
     # append to the file, do not overwrite
+    os.makedirs(os.path.dirname(results_file), exist_ok=True)
     if not os.path.exists(results_file):
         df.to_csv(results_file, index=False, header=True)
     else:

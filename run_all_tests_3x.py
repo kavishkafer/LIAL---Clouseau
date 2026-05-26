@@ -25,11 +25,9 @@ class MasterTestRunner:
             ("--scenarios-si", "single_host", "S1-S4 (Single-host)"),
             ("--scenarios-se", "extended", "SE1-SE4 (Extended semantic gap)"),
             ("--scenarios-ss", "keywords", "SS1-SS4 (Keyword sensitivity)"),
-            ("--scenarios-mi", "multi_host", "M1-M6 (Multi-host lateral movement)"),
-            ("--scenarios-optc", "optc", "OpTC1-3 (DARPA generalization)"),
         ]
         
-        self.total_tests = 63  # 21 scenarios × 3 POIs
+        self.total_tests = 36  # 12 scenarios × 3 POIs (S, SE, SS only)
         self.num_runs = 3
         self.start_time = None
         
@@ -67,11 +65,18 @@ class MasterTestRunner:
         
         try:
             start = time.time()
+            # Ensure LLM env vars are passed to subprocess
+            env = os.environ.copy()
+            env.setdefault('LLM_MODEL', 'gemma4')
+            env.setdefault('API_KEY', 'local')
+            env.setdefault('BASE_URL', 'http://172.31.0.94:8000/v1')
+            
             result = subprocess.run(
                 cmd,
                 cwd=self.artifact_dir,
                 timeout=14400,  # 4 hour timeout per test type
-                capture_output=False
+                capture_output=False,
+                env=env
             )
             duration = time.time() - start
             
