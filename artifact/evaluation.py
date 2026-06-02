@@ -65,18 +65,23 @@ class EvaluationResults:
 
                 # Determine prediction
                 event_p = 0
+                # Normalize both sides: lowercase + forward slashes for path matching
+                line_norm = line_lower.replace('\\', '/')
                 if any(addr in line for addr in pred_artifacts.get("addresses", [])):
                     event_p = 1
-                elif any(file in line_lower for file in pred_artifacts.get("files", [])):
+                elif any(f.lower().replace('\\', '/') in line_norm for f in pred_artifacts.get("files", [])):
                     event_p = 1
-                elif any(file in line_lower for file in pred_artifacts.get("domains", [])):
+                elif any(d.lower() in line_lower for d in pred_artifacts.get("domains", [])):
                     event_p = 1
-                # Check processes
+                # Check malicious_processes AND tainted_processes — the agent is instructed
+                # to put attacker-leveraged programs (e.g. firefox.exe) into tainted_processes,
+                # so we must score both lists to avoid penalizing correct behavior.
                 else:
-                    for proc in pred_artifacts.get("malicious_processes", []):
-                        proc_name = proc.get('name', '').lower()
-                        if proc_name in line_lower:
-                            event_p = 1
+                    for key in ("malicious_processes", "tainted_processes"):
+                        for proc in pred_artifacts.get(key, []):
+                            proc_name = proc.get('name', '').lower()
+                            if proc_name and proc_name in line_lower:
+                                event_p = 1
 
                 y_true.append(event_t)
                 y_pred.append(event_p)
@@ -98,8 +103,10 @@ class EvaluationResults:
         # Step 1: Build the initial set of predicted root malicious process IDs.
         # We convert them to strings for consistency.
         initial_pids = []
-        #for key in ["malicious_processes", "tainted_processes"]:
-        for key in ["malicious_processes"]:
+        # Also include tainted_processes: the prompt instructs the agent to put
+        # attacker-leveraged programs there, so scoring only malicious_processes
+        # penalizes correct instruction-following behavior.
+        for key in ["malicious_processes", "tainted_processes"]:
             for proc in pred_artifacts.get(key, []):
                 pid = proc.get("pid")
                 if pid is not None:
