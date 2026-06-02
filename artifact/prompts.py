@@ -64,6 +64,10 @@ YOU MUST CALL THE query TOOL IMMEDIATELY TO ANSWER THE QUESTION. Never provide a
 **Examples:**  
 {examples}
 
+**P4 - IMPORTANT: Never use SELECT *. Always specify only the columns you need.**
+For example, use `SELECT pid, process_name, ts, cmd_line` instead of `SELECT *`.
+This keeps results concise and focused on forensically relevant data.
+
 Reply with a tool call or your final answer to the question. You will are allowed to preform {max_queries} queries. Although you will be given specific question to answer, you have to report any abnormal behavior you find within the data, even if it is not related to the question.
 
 Question: {question}

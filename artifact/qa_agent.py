@@ -8,6 +8,22 @@ from datetime import datetime
 import sqlite3
 import prompts
 
+# P1: Column-aware cell truncation — prevents browser headers/cookies/response
+# bodies from flooding the context window (~600 tokens per row on http_logs).
+AGGRESSIVE_TRUNCATE = {'headers', 'response', 'cookies', 'user_agent', 'answers'}
+MODERATE_TRUNCATE = {'cmd_line', 'file_path', 'object'}
+
+def format_cell(column_name: str, value) -> str:
+    """Truncate cell values based on column semantics to preserve context budget."""
+    if not isinstance(value, str):
+        return str(value)
+    col = column_name.lower()
+    if col in AGGRESSIVE_TRUNCATE and len(value) > 150:
+        return value[:100] + f"...[{len(value) - 130} chars omitted]..." + value[-30:]
+    elif col in MODERATE_TRUNCATE and len(value) > 1000:
+        return value[:900] + "...[truncated]..." + value[-100:]
+    return value
+
 def darpa_parse_ts(ts_str: str) -> datetime:
     """
     Parse a timestamp string into a datetime object.
@@ -63,7 +79,9 @@ def darpa_get_children(conn: sqlite3.Connection, parent_pid: int, prefix: str=""
         # Determine branch graphic: "└──" for the last child; "├──" otherwise.
         is_last = (idx == len(children) - 1)
         branch = "└── " if is_last else "├── "
-        line = prefix + branch + "{} - {} - {} - {}".format(child[2], child[3], child[1], child[5])
+        # P5: Cap cmd_line to 300 chars to prevent long PowerShell/base64 payloads from bloating tree output
+        cmd = (child[5][:297] + "...") if child[5] and len(child[5]) > 300 else child[5]
+        line = prefix + branch + "{} - {} - {} - {}".format(child[2], child[3], child[1], cmd)
         output_lines.append(line)
         # Prepare a new prefix for the next recursive`` level.
         new_prefix = prefix + ("    " if is_last else "│   ")
@@ -142,8 +160,14 @@ def run_sql_query(db_name: Annotated[str, InjectedToolArg], query: str) -> str:
                 " Please refine the query, consider using `GROUP BY`, `DISTINCT` or elminating some of the columns you request."
                 " If you are selecting time column, consider using `DISTINCT` without the time column."
             )
-        rows_str = '\n'.join(['\t'.join(map(str, row)) for row in rows])
-        return rows_str
+        # P1: Apply column-aware truncation to prevent wide columns (headers,
+        # cookies, response bodies) from consuming the entire context window.
+        col_names = [desc[0] for desc in cursor.description]
+        formatted_rows = []
+        for row in rows:
+            formatted_row = [format_cell(col_names[i], row[i]) for i in range(len(row))]
+            formatted_rows.append('\t'.join(formatted_row))
+        return '\n'.join(formatted_rows)
 
 @tool(parse_docstring=True)
 def darpa_get_ancestors(db_name: Annotated[str, InjectedToolArg], pid: int) -> str:
@@ -186,9 +210,12 @@ def darpa_get_ancestors(db_name: Annotated[str, InjectedToolArg], pid: int) -> s
     output_lines = []
     for anc in ancestors:
         # Format: "  <pid> - <process_name> - <timestamp> - <cmd_line>"
-        output_lines.append("  {} - {} - {} - {}".format(anc[2], anc[4], anc[1], anc[5]))
+        # P5: Cap cmd_line to 300 chars to prevent long PowerShell/base64 payloads
+        anc_cmd = (anc[5][:297] + "...") if anc[5] and len(anc[5]) > 300 else anc[5]
+        output_lines.append("  {} - {} - {} - {}".format(anc[2], anc[4], anc[1], anc_cmd))
     # Append the target process (leaf of the lineage)
-    output_lines.append("--> {} - {} - {} - {}".format(target_record[2], target_record[4], target_record[1], target_record[5]))
+    tgt_cmd = (target_record[5][:297] + "...") if target_record[5] and len(target_record[5]) > 300 else target_record[5]
+    output_lines.append("--> {} - {} - {} - {}".format(target_record[2], target_record[4], target_record[1], tgt_cmd))
     return "\n".join(output_lines)
 
 @tool(parse_docstring=True)
