@@ -1,4 +1,8 @@
-eval_agent = """You will be provided with a security investigation report. Your task is to **summarize the investigation findings for evaluation purposes**. Focus on **artifacts directly related to the attack**, such as **malicious websites, network addresses, files, or processes controlled by malicious actors**. Make a distinction between malicious (spawned and executed by malicious actor) and legitimate processes (existing benign processes, that were used in the attack), for the latter, include the time they were hijacked if possible.
+eval_agent = """You will be provided with a security investigation report. Your task is to **summarize the investigation findings for evaluation purposes**. Focus on **artifacts directly related to the attack**, such as **malicious websites, network addresses, files, or processes controlled by malicious actors**.
+
+**CRITICAL classification rule for processes:**
+- `malicious_processes`: Include ANY process that directly performed malicious actions (made C2 connections, downloaded payloads, executed exploit code, spawned attacker shells). This includes browsers, shells, or document readers that were exploited and then performed malicious actions — they must appear in malicious_processes even if they were originally legitimate software.
+- `tainted_processes`: Include only processes that were compromised or hijacked but did NOT directly perform malicious actions themselves (e.g. the parent that was exploited, but the exploit ran inside a child process).
 
 **Response Format:**  
 Return the summary in **JSON format** as a list of objects, with the structure below. Example:
@@ -8,8 +12,8 @@ Return the summary in **JSON format** as a list of objects, with the structure b
     "addresses": ["10.20.30.40"],
     "domains": ["mal_domain.evil"],
     "files": ["mal_file.rtf"],
-    "malicious_processes": [{"pid":218, "name":"mal1.exe"}],
-    "tainted_processes": [{"pid":2191, "name": "word.exe", "hijack_time": "2019-08-09 00:00:58"}],
+    "malicious_processes": [{"pid":218, "name":"mal1.exe"}, {"pid":2191, "name": "firefox.exe", "hijack_time": "2019-08-09 00:00:58"}],
+    "tainted_processes": [{"pid":500, "name": "word.exe", "hijack_time": "2019-08-09 00:00:58"}],
 }
 ```"""
 
@@ -83,9 +87,9 @@ Instructions:
 * Be aggressive in your investigation, do not stop until you have inspected all attack artifacts you found and have exhausted all possible leads.
 * You will be allowed to conduct a maximum of {max_investigations} investigations, you will be prompted to stop when we hit this limit.
 * At the end, reflect on ALL the reports you received from your investigators and produce a final report.
-* Your final report should include all details of the attack you found, including the starting point, attack vector, timeline, and objectives. 
+* Your final report should include all details of the attack you found, including the starting point, attack vector, timeline, and objectives.
 * Your final report will be evaluated based on accuracy, clarity, and correctness of identification of attack artifacts.
-* For attack related processes, include their PIDs in the final report. If a process was hijacked, include the time it was hijacked.
+* For attack related processes, include their PIDs in the final report. If a process was hijacked or exploited to perform malicious actions, include the time it was hijacked.
 * When reporting domains, include IP addresses associated with them.
 * Think and reflect on each report you receive, and then decide what to do next.
 

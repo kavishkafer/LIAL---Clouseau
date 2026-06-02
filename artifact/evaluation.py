@@ -45,43 +45,44 @@ class EvaluationResults:
 
         y_true, y_pred = [], []
         pred_artifacts = self.predicted
-        
+
         # Handle case where parsing failed and returned None
         if pred_artifacts is None:
             pred_artifacts = {}
-        
+
         if type(pred_artifacts) == list:
             pred_artifacts = pred_artifacts[0] if pred_artifacts else {}
-        
-        #print(pred_artifacts)
+
         file_path = os.path.join(self.data_path, 'scenario.csv')
-        # Reading ground truth file
         with open(file_path) as f:
             for line in f:
                 line_lower = line.lower()
                 parts = line.strip().split(',')
                 event_t = 1 if '+' in parts[-1] else 0
 
-
-                # Determine prediction
                 event_p = 0
-                # Normalize both sides: lowercase + forward slashes for path matching
+                # Normalize both sides for path/domain matching (lowercase + backslash→slash)
                 line_norm = line_lower.replace('\\', '/')
+
                 if any(addr in line for addr in pred_artifacts.get("addresses", [])):
                     event_p = 1
-                elif any(f.lower().replace('\\', '/') in line_norm for f in pred_artifacts.get("files", [])):
+                elif any(f.lower().replace('\\', '/') in line_norm
+                         for f in pred_artifacts.get("files", [])):
                     event_p = 1
-                elif any(d.lower() in line_lower for d in pred_artifacts.get("domains", [])):
+                elif any(d.lower() in line_lower
+                         for d in pred_artifacts.get("domains", [])):
                     event_p = 1
-                # Check malicious_processes AND tainted_processes — the agent is instructed
-                # to put attacker-leveraged programs (e.g. firefox.exe) into tainted_processes,
-                # so we must score both lists to avoid penalizing correct behavior.
+                # Check malicious_processes only (NOT tainted_processes).
+                # Tainted processes (e.g. firefox.exe, cmd.exe) are hijacked benign
+                # processes with a large history of benign events before the attack.
+                # Scoring them causes massive FPs. The agent prompt is updated so that
+                # any process that performs malicious actions is listed in
+                # malicious_processes regardless of whether it was originally benign.
                 else:
-                    for key in ("malicious_processes", "tainted_processes"):
-                        for proc in pred_artifacts.get(key, []):
-                            proc_name = proc.get('name', '').lower()
-                            if proc_name and proc_name in line_lower:
-                                event_p = 1
+                    for proc in pred_artifacts.get("malicious_processes", []):
+                        proc_name = proc.get('name', '').lower()
+                        if proc_name and proc_name in line_lower:
+                            event_p = 1
 
                 y_true.append(event_t)
                 y_pred.append(event_p)
@@ -103,15 +104,16 @@ class EvaluationResults:
         # Step 1: Build the initial set of predicted root malicious process IDs.
         # We convert them to strings for consistency.
         initial_pids = []
-        # Also include tainted_processes: the prompt instructs the agent to put
-        # attacker-leveraged programs there, so scoring only malicious_processes
-        # penalizes correct instruction-following behavior.
-        for key in ["malicious_processes", "tainted_processes"]:
+        # Only use malicious_processes (NOT tainted_processes).
+        # Tainted processes are hijacked benign processes whose descendant trees include
+        # many pre-attack benign children, inflating FPs in the propagation step.
+        for key in ["malicious_processes"]:
             for proc in pred_artifacts.get(key, []):
                 pid = proc.get("pid")
                 if pid is not None:
                     initial_pids.append(str(pid))
         pred_pids = set(initial_pids)
+
                 
         file_path = os.path.join(self.data_path, 'scenario.db')
         # Step 2: Propagate the predictions to include all descendant process IDs.
