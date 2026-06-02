@@ -62,7 +62,9 @@ def save_to_csv(df: pd.DataFrame, results_file: str):
     # save the results to a csv file
     # put headers if it is the first time
     # append to the file, do not overwrite
-    os.makedirs(os.path.dirname(results_file), exist_ok=True)
+    dirname = os.path.dirname(results_file)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
     if not os.path.exists(results_file):
         df.to_csv(results_file, index=False, header=True)
     else:
@@ -116,6 +118,7 @@ def run_scenarios(scns: List, llm: ChatOpenAI, configs: Dict, ablation: bool, da
             poi_cfg = base_cfg.copy()
             poi_cfg['clue'] = p[0]
             poi_cfg['test_name'] = f"{i['name']}_{p[1]}"
+            poi_cfg['is_darpa'] = darpa
 
             # --- Resume: skip tests already in the output CSV ---
             if resume and already_completed(csv_file, poi_cfg['test_name']):

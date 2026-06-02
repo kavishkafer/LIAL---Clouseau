@@ -44,7 +44,7 @@ EXPECTED_SCENARIOS = [
     ("optc3", "scenarios/OPT3/scenario.db", "DARPA OpTC"),
 ]
 
-def check_datasets(base_dir=None):
+def check_datasets(base_dir=None, groups=None):
     """Check existence of expected database files."""
     if base_dir is None:
         # Resolve relative to this script's directory
@@ -57,6 +57,8 @@ def check_datasets(base_dir=None):
     available_count = 0
     
     for name, rel_path, group in EXPECTED_SCENARIOS:
+        if groups is not None and group not in groups:
+            continue
         db_path = base_dir / rel_path
         status = "Available [OK]" if db_path.exists() else "Missing [X]"
         if db_path.exists():
@@ -108,9 +110,30 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Verify that all scenario datasets are preprocessed and available.")
     parser.add_argument("--silent", action="store_true", help="Do not print any report to stdout.")
+    parser.add_argument('--scenarios-si', action='store_true', help='Check ATLAS Single Host scenarios')
+    parser.add_argument('--scenarios-se', action='store_true', help='Check ATLAS Extended scenarios')
+    parser.add_argument('--scenarios-ss', action='store_true', help='Check ATLAS Sensitivity scenarios')
+    parser.add_argument('--scenarios-mi', '--scenarios-ml', action='store_true', dest='scenarios_mi', help='Check ATLAS Multi Host scenarios')
+    parser.add_argument('--scenarios-optc', action='store_true', help='Check DARPA OpTC scenarios')
     args = parser.parse_args()
     
-    results, available, missing = check_datasets()
+    groups = []
+    if args.scenarios_si:
+        groups.append("ATLAS Single Host")
+    if args.scenarios_se:
+        groups.append("ATLAS Extended")
+    if args.scenarios_ss:
+        groups.append("ATLAS Sensitivity")
+    if args.scenarios_mi:
+        groups.append("ATLAS Multi Host")
+    if args.scenarios_optc:
+        groups.append("DARPA OpTC")
+        
+    # If no groups are specified, check all
+    if not groups:
+        groups = None
+        
+    results, available, missing = check_datasets(groups=groups)
     
     if not args.silent:
         print_report(results, available, missing)

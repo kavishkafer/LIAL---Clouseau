@@ -45,8 +45,13 @@ class EvaluationResults:
 
         y_true, y_pred = [], []
         pred_artifacts = self.predicted
+        
+        # Handle case where parsing failed and returned None
+        if pred_artifacts is None:
+            pred_artifacts = {}
+        
         if type(pred_artifacts) == list:
-            pred_artifacts = pred_artifacts[0]
+            pred_artifacts = pred_artifacts[0] if pred_artifacts else {}
         
         #print(pred_artifacts)
         file_path = os.path.join(self.data_path, 'scenario.csv')
@@ -82,8 +87,13 @@ class EvaluationResults:
     def evaluate_optc(self):
         y_true, y_pred = [], []
         pred_artifacts = self.predicted
+        
+        # Handle case where parsing failed and returned None
+        if pred_artifacts is None:
+            pred_artifacts = {}
+        
         if type(pred_artifacts) == list:
-            pred_artifacts = pred_artifacts[0]
+            pred_artifacts = pred_artifacts[0] if pred_artifacts else {}
         
         # Step 1: Build the initial set of predicted root malicious process IDs.
         # We convert them to strings for consistency.

@@ -17,7 +17,7 @@ class FullTestRunner:
     
     def __init__(self):
         self.artifact_dir = Path("artifact")
-        self.results_dir = Path("artifact/results_1x_run")
+        self.results_dir = Path("artifact/results_1x_run").resolve()
         self.results_dir.mkdir(exist_ok=True)
         self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         
@@ -65,11 +65,38 @@ class FullTestRunner:
         
         try:
             start = time.time()
+            # Ensure LLM env vars are passed to subprocess with dynamic default model resolution
+            env = os.environ.copy()
+            base_url = env.get('BASE_URL', 'http://172.31.0.94:8000/v1')
+            env.setdefault('BASE_URL', base_url)
+            env.setdefault('API_KEY', 'local')
+
+            if 'LLM_MODEL' not in env:
+                import urllib.request
+                import json
+                resolved_model = None
+                try:
+                    req = urllib.request.Request(f"{base_url}/models")
+                    with urllib.request.urlopen(req, timeout=5) as response:
+                        data = json.loads(response.read().decode())
+                        if data and "data" in data and len(data["data"]) > 0:
+                            resolved_model = data["data"][0]["id"]
+                except Exception:
+                    pass
+
+                if resolved_model:
+                    env['LLM_MODEL'] = resolved_model
+                    print(f"--> Dynamically resolved LLM_MODEL from vLLM endpoint: {resolved_model}")
+                else:
+                    env['LLM_MODEL'] = 'gemma4'
+                    print("--> Failed to contact vLLM or list models, defaulting LLM_MODEL to 'gemma4'")
+
             result = subprocess.run(
                 cmd,
                 cwd=self.artifact_dir,
                 timeout=259200,  # 72-hour timeout per test type (3-day window)
-                capture_output=False
+                capture_output=False,
+                env=env
             )
             duration = time.time() - start
             

@@ -17,7 +17,7 @@ class MasterTestRunner:
     
     def __init__(self):
         self.artifact_dir = Path("artifact")
-        self.results_dir = Path("artifact/results_3x_runs")
+        self.results_dir = Path("artifact/results_3x_runs").resolve()
         self.results_dir.mkdir(exist_ok=True)
         
         # Test configurations
@@ -25,9 +25,11 @@ class MasterTestRunner:
             ("--scenarios-si", "single_host", "S1-S4 (Single-host)"),
             ("--scenarios-se", "extended", "SE1-SE4 (Extended semantic gap)"),
             ("--scenarios-ss", "keywords", "SS1-SS4 (Keyword sensitivity)"),
+            ("--scenarios-mi", "multihost", "M1-M6 (Multi-host)"),
+            ("--scenarios-optc", "optc", "OpTC (Generalizability)"),
         ]
         
-        self.total_tests = 36  # 12 scenarios × 3 POIs (S, SE, SS only)
+        self.total_tests = 81  # 12 S + 12 SE + 12 SS + 36 MI + 9 OpTC
         self.num_runs = 3
         self.start_time = None
         
@@ -47,8 +49,30 @@ class MasterTestRunner:
         total_hours = hours_per_run * self.num_runs
         return hours_per_run, total_hours
     
+    def wait_for_vllm(self, base_url, timeout_minutes=60):
+        """Wait for the vLLM server to be online and responsive."""
+        print(f"Checking if vLLM server at {base_url} is online...")
+        import urllib.request
+        import json
+        start_time = time.time()
+        while True:
+            try:
+                req = urllib.request.Request(f"{base_url}/models")
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    data = json.loads(response.read().decode())
+                    if data and "data" in data and len(data["data"]) > 0:
+                        print("--> vLLM server is online and responsive.")
+                        return True
+            except Exception as e:
+                elapsed = (time.time() - start_time) / 60
+                if elapsed > timeout_minutes:
+                    print(f"--> vLLM server remains offline after {timeout_minutes} minutes. Giving up.")
+                    return False
+                print(f"--> vLLM server is offline/unreachable ({e}). Waiting 60 seconds to retry... (Elapsed: {elapsed:.1f}/{timeout_minutes} min)")
+                time.sleep(60)
+
     def run_test_config(self, scenario_flag, config_name, display_name, run_num):
-        """Run a single test configuration"""
+        """Run a single test configuration with retry logic and vLLM health check"""
         output_csv = self.results_dir / f"run{run_num}_{config_name}.csv"
         
         cmd = [
@@ -59,40 +83,91 @@ class MasterTestRunner:
             "--no-warn"
         ]
         
-        self.print_section(f"[Run {run_num}/3] Testing {display_name}")
-        print(f"Command: {' '.join(cmd)}")
-        print(f"Output: {output_csv}")
+        # Pass --resume if the outer script was called with it
+        if "--resume" in sys.argv:
+            cmd.append("--resume")
         
-        try:
-            start = time.time()
-            # Ensure LLM env vars are passed to subprocess
-            env = os.environ.copy()
-            env.setdefault('LLM_MODEL', 'gemma4')
-            env.setdefault('API_KEY', 'local')
-            env.setdefault('BASE_URL', 'http://172.31.0.94:8000/v1')
+        # Ensure LLM env vars are resolved
+        env = os.environ.copy()
+        base_url = env.get('BASE_URL', 'http://127.0.0.1:8000/v1')
+        env.setdefault('BASE_URL', base_url)
+        env.setdefault('API_KEY', 'local')
+
+        # Ensure LLM server is online before launching
+        if not self.wait_for_vllm(base_url, timeout_minutes=60):
+            print(f"✗ Cannot start {display_name}: LLM endpoint is offline.")
+            return False
+
+        max_attempts = 3
+        attempt = 0
+        while attempt < max_attempts:
+            attempt += 1
+            if attempt > 1:
+                print(f"\n--- Retrying {display_name} (Attempt {attempt}/{max_attempts}) ---")
+                if "--resume" not in cmd:
+                    cmd.append("--resume")
             
-            result = subprocess.run(
-                cmd,
-                cwd=self.artifact_dir,
-                timeout=14400,  # 4 hour timeout per test type
-                capture_output=False,
-                env=env
-            )
-            duration = time.time() - start
+            self.print_section(f"[Run {run_num}/3] Testing {display_name} (Attempt {attempt}/{max_attempts})")
+            print(f"Command: {' '.join(cmd)}")
+            print(f"Output: {output_csv}")
             
-            if result.returncode == 0:
-                print(f"✓ {display_name} completed in {duration/60:.1f} minutes")
-                return True
-            else:
-                print(f"✗ {display_name} failed with return code {result.returncode}")
-                return False
+            try:
+                start = time.time()
                 
-        except subprocess.TimeoutExpired:
-            print(f"✗ {display_name} timed out after 4 hours")
-            return False
-        except Exception as e:
-            print(f"✗ {display_name} error: {e}")
-            return False
+                # Resolve LLM_MODEL dynamically (on first check or retry)
+                if 'LLM_MODEL' not in env or attempt > 1:
+                    import urllib.request
+                    import json
+                    resolved_model = None
+                    try:
+                        req = urllib.request.Request(f"{base_url}/models")
+                        with urllib.request.urlopen(req, timeout=5) as response:
+                            data = json.loads(response.read().decode())
+                            if data and "data" in data and len(data["data"]) > 0:
+                                resolved_model = data["data"][0]["id"]
+                    except Exception:
+                        pass
+
+                    if resolved_model:
+                        env['LLM_MODEL'] = resolved_model
+                        print(f"--> Dynamically resolved LLM_MODEL: {resolved_model}")
+                    else:
+                        env.setdefault('LLM_MODEL', 'gemma4')
+                
+                result = subprocess.run(
+                    cmd,
+                    cwd=self.artifact_dir,
+                    timeout=43200,  # 12 hour timeout per test type
+                    capture_output=False,
+                    env=env
+                )
+                duration = time.time() - start
+                
+                if result.returncode == 0:
+                    print(f"✓ {display_name} completed in {duration/60:.1f} minutes")
+                    return True
+                else:
+                    print(f"✗ {display_name} failed with return code {result.returncode}")
+                    if attempt < max_attempts:
+                        print("Checking LLM endpoint health before retrying...")
+                        if not self.wait_for_vllm(base_url, timeout_minutes=60):
+                            print("LLM endpoint is completely offline. Giving up.")
+                            return False
+                        time.sleep(10)
+                        
+            except subprocess.TimeoutExpired:
+                print(f"✗ {display_name} timed out after 4 hours")
+                return False
+            except Exception as e:
+                print(f"✗ {display_name} error: {e}")
+                if attempt < max_attempts:
+                    print("Checking LLM endpoint health before retrying...")
+                    self.wait_for_vllm(base_url, timeout_minutes=60)
+                    time.sleep(10)
+                else:
+                    return False
+        
+        return False
     
     def run_all_3x(self):
         """Execute all tests 3 times"""
@@ -258,7 +333,8 @@ def main():
     # Pre-flight dataset availability check
     import subprocess
     print("Running pre-flight dataset availability check...")
-    check_cmd = [sys.executable, "artifact/check_datasets.py"]
+    flags = [config[0] for config in runner.test_configs]
+    check_cmd = [sys.executable, "artifact/check_datasets.py"] + flags
     res = subprocess.run(check_cmd)
     if res.returncode != 0:
         print("\n[X] Pre-flight check failed: Some required datasets are missing.")
