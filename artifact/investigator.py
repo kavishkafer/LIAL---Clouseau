@@ -1,5 +1,5 @@
 from prompts_manager import get_prompt_investigation_agent
-from qa_agent import atlas_browser_agent, atlas_dns_agent, atlas_audit_agent
+from qa_agent import atlas_browser_agent, atlas_dns_agent, atlas_audit_agent, prune_messages
 from qa_agent import darpa_http_agent, darpa_dns_agent, darpa_processes_agent, darpa_files_agent, darpa_flow_agent
 from langgraph.graph import StateGraph, MessagesState, END
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
@@ -236,12 +236,12 @@ class InvestigateAgent:
     
     def call_model(self, state: MessagesState):
 
-        messages = state["messages"]
         if self.current_iteration > self.max_iterations:
-            messages += [HumanMessage(content="We have to conclude this investigation, summarize your findings.")]
+            messages = prune_messages(state["messages"]) + [HumanMessage(content="We have to conclude this investigation, summarize your findings.")]
             response = self.model_no_tools.invoke(messages, max_tokens=self.max_tokens)
             return {"messages": [response]} # returning empty should end the conversation
         
+        messages = prune_messages(state["messages"])
         response = self.model.invoke(messages, max_tokens=self.max_tokens)
         return {"messages": [response]}
 

@@ -2,7 +2,7 @@ DEFAULT_INVESTIGATIONS = 10
 DEFAULT_QUESTIONS = 10
 DEFAULT_QUERIES = 10
 DEFAULT_QUERIES_ABLATION = 50 # anymore and agent hits the recursion limit
-DEFAULT_INVESTIGATION_MIN = 5 # at least 5 investigations
+DEFAULT_INVESTIGATION_MIN = 7 # at least 7 investigations
 DEFAULT_MAX_TOKENS = 2048
 
 # Error loop guards — caps malformed <tool_call> XML retries before giving up

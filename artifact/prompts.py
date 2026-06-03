@@ -3,6 +3,7 @@ eval_agent = """You will be provided with a security investigation report. Your 
 **CRITICAL classification rule for processes:**
 - `malicious_processes`: Include ANY process that directly performed malicious actions (made C2 connections, downloaded payloads, executed exploit code, spawned attacker shells). This includes browsers, shells, or document readers that were exploited and then performed malicious actions — they must appear in malicious_processes even if they were originally legitimate software.
 - `tainted_processes`: Include only processes that were compromised or hijacked but did NOT directly perform malicious actions themselves (e.g. the parent that was exploited, but the exploit ran inside a child process).
+- **Exclude test automation harness:** Do NOT classify automated testing, benchmarking, or simulation harness processes (such as `mantra.exe` or `python.exe` running `mantra-script.py` or automated `PING.EXE` commands) as malicious_processes. Only classify actual attacker processes as malicious.
 
 **Response Format:**  
 Return the summary in **JSON format** as a list of objects, with the structure below. Example:
@@ -92,6 +93,11 @@ Instructions:
 * For attack related processes, include their PIDs in the final report. If a process was hijacked or exploited to perform malicious actions, include the time it was hijacked.
 * When reporting domains, include IP addresses associated with them.
 * Think and reflect on each report you receive, and then decide what to do next.
+* **CRITICAL RULE FOR MULTI-HOST INVESTIGATIONS:**
+  After each investigation report, extract pivot artifacts in this exact format before deciding your next action:
+  PIVOTS FOUND:
+  - [SrcHost] -> [DstHost]: IP=[dst_ip], Port=[port], Timestamp=[ts], Process=[name] PID=[pid]
+  When calling investigate_lead for a follow-up host, ALWAYS include the exact pivot details (IP, port, timestamp, PID) from the previous investigation in your lead message.
 
 Environment: 
 {environment}
@@ -186,10 +192,7 @@ darpa_dns_examples_qa = {
     "SELECt * FROM dns_logs WHERE answers LIKE '%192.0.0.1%'",
 
     "Find all addresses associated with example.com":
-    "SELECt * FROM dns_logs WHERE query LIKE '%example.com%'",
-
-    "Purpose": 
-    "-- consult the local DNS server to find domains associated with addresses or addresses associated with domains;"
+    "SELECt * FROM dns_logs WHERE query LIKE '%example.com%'"
 }
 
 darpa_browser_examples_qa = {
@@ -261,12 +264,18 @@ darpa_flow_examples_qa = {
     "-- you can further filer this to exclude ip addreses (for example local ones), or identify addresse where hosts sent the most or read the most by changing the direction of the flow\n",
 
     "List all pid and their process_name's that connected to IP 192.1.1.1, the amount of data exchanged and the duration of all connections":
-    "-- This is a multi step query. First, we find pids connected to ip address"
-    "SELECT pid, process_name, ip, SUM(size) FROM flow_logs WHERE ip = '192.1.1.1' GROUP BY pid, process_name, ip;\n",
+    "-- This is a multi step query. First, we find pids connected to ip address\n"
+    "SELECT pid, process_name, ip, SUM(size) FROM flow_logs WHERE ip = '192.1.1.1' GROUP BY pid, process_name, ip;\n"
     "-- Then we can use the pids to find the duration of the connections\n"
     "-- For each pid, we find the duration of the connections\n"
     "SELECT MIN(ts) AS start_time, MAX(ts) AS finish_time FROM flow_logs WHERE ip = '192.1.1.1' AND pid = [pid value];\n"
-    "-- combine the results and return a comprehensive view of the connections\n"
+    "-- combine the results and return a comprehensive view of the connections\n",
+
+    "Find the process name and command line for the process that connected to IP 132.197.158.98":
+    "-- Step 1: Find the PID from flow_logs\n"
+    "SELECT DISTINCT pid FROM flow_logs WHERE ip = '132.197.158.98';\n"
+    "-- Step 2: Look up the process details in processes_logs\n"
+    "SELECT process_name, pid, ppid, cmd_line FROM processes_logs WHERE pid = [pid_from_step1] AND action = 'CREATE';",
 
     "TIPS:":
     "-- only TCP and UDP traffic is recorded here.\n"

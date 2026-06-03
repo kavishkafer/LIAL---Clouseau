@@ -24,6 +24,23 @@ def format_cell(column_name: str, value) -> str:
         return value[:900] + "...[truncated]..." + value[-100:]
     return value
 
+def prune_messages(messages, keep_last_k=3):
+    """Prune older ToolMessage content to keep context window lean."""
+    tool_count = 0
+    pruned = []
+    for msg in reversed(messages):
+        if isinstance(msg, ToolMessage):
+            tool_count += 1
+            if tool_count > keep_last_k:
+                # Replace content but preserve ID and name
+                msg = ToolMessage(
+                    content="[Previous query results omitted — see reasoning above for findings]",
+                    tool_call_id=msg.tool_call_id,
+                    name=msg.name
+                )
+        pruned.insert(0, msg)
+    return pruned
+
 def darpa_parse_ts(ts_str: str) -> datetime:
     """
     Parse a timestamp string into a datetime object.
@@ -439,11 +456,11 @@ class SQLAgent:
     def call_model(self, state: MessagesState):
         
         if self.current_iteration > self.max_iterations:
-            messages = state["messages"] + [HumanMessage(content="Lets try to answer the question with the information we have. As we have reached the maximum number of iterations.")]
+            messages = prune_messages(state["messages"]) + [HumanMessage(content="Lets try to answer the question with the information we have. As we have reached the maximum number of iterations.")]
             response = self.model_no_tools.invoke(messages, max_tokens=self.max_tokens)
             return {"messages": [response]}
         
-        messages = state["messages"]
+        messages = prune_messages(state["messages"])
         response = self.model.invoke(messages, max_tokens=self.max_tokens)
         #response = self.model.invoke(messages)
         return {"messages": [response]}

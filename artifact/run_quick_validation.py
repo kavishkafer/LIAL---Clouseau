@@ -59,7 +59,14 @@ def main():
     import app as app_module
 
     # Resolve LLM
-    llm = create_llm_from_env()
+    model = os.environ.get('LLM_MODEL', None)
+    api_key = os.environ.get('API_KEY', None)
+    base_url = os.environ.get('BASE_URL', None)
+    try:
+        llm, provider = create_llm_from_env(model=model, api_key=api_key, base_url=base_url)
+    except Exception as exc:
+        print("LLM configuration error:", str(exc))
+        sys.exit(1)
 
     configs = {
         "max_investigations": constants.DEFAULT_INVESTIGATIONS,

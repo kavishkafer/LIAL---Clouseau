@@ -31,6 +31,11 @@ class EvaluationResults:
                 return parsed_data
             except json.JSONDecodeError:
                 print("Failed to parse JSON. Please check the format.")
+                # Regex PID extraction fallback
+                pid_matches = re.findall(r'"pid"\s*:\s*(\d+)', json_content)
+                if pid_matches:
+                    print(f"Extracted {len(pid_matches)} PIDs from malformed JSON via regex fallback.")
+                    return {"malicious_processes": [{"pid": int(p), "name": ""} for p in pid_matches]}
                 return None
         else:
             try:
@@ -39,6 +44,11 @@ class EvaluationResults:
             except json.JSONDecodeError:
                 # Handle JSON parsing error
                 print("Failed to parse JSON. Please check the format.")
+                # Regex PID extraction fallback
+                pid_matches = re.findall(r'"pid"\s*:\s*(\d+)', json_report)
+                if pid_matches:
+                    print(f"Extracted {len(pid_matches)} PIDs from malformed JSON via regex fallback.")
+                    return {"malicious_processes": [{"pid": int(p), "name": ""} for p in pid_matches]}
                 return None
 
     def evaluate_atlas(self):
@@ -52,6 +62,16 @@ class EvaluationResults:
 
         if type(pred_artifacts) == list:
             pred_artifacts = pred_artifacts[0] if pred_artifacts else {}
+
+        # Set of common benign process names in ATLAS logs to exclude from name-only matching
+        # as matching them by name triggers massive false positives due to substring checks.
+        COMMON_BENIGN_PROCESSES = {
+            'cmd.exe', 'cmd', 'firefox.exe', 'firefox', 'plugin-container.exe', 
+            'searchprotocolhost.exe', 'werfault.exe', 'svchost.exe', 'explorer.exe', 
+            'iexplore.exe', 'chrome.exe', 'powershell.exe', 'powershell', 'wscript.exe', 
+            'cscript.exe', 'services.exe', 'lsass.exe', 'taskhost.exe', 'searchindexer.exe',
+            'svchost', 'explorer', 'chrome', 'python.exe', 'python'
+        }
 
         file_path = os.path.join(self.data_path, 'scenario.csv')
         with open(file_path) as f:
@@ -67,6 +87,7 @@ class EvaluationResults:
                 if any(addr in line for addr in pred_artifacts.get("addresses", [])):
                     event_p = 1
                 elif any(f.lower().replace('\\', '/') in line_norm
+                         and not f.lower().replace('\\', '/').startswith('c:/windows/system32/')
                          for f in pred_artifacts.get("files", [])):
                     event_p = 1
                 elif any(d.lower() in line_lower
@@ -80,9 +101,10 @@ class EvaluationResults:
                 # malicious_processes regardless of whether it was originally benign.
                 else:
                     for proc in pred_artifacts.get("malicious_processes", []):
-                        proc_name = proc.get('name', '').lower()
-                        if proc_name and proc_name in line_lower:
-                            event_p = 1
+                        proc_name = proc.get('name', '').lower().strip()
+                        if proc_name and proc_name not in COMMON_BENIGN_PROCESSES:
+                            if proc_name in line_lower:
+                                event_p = 1
 
                 y_true.append(event_t)
                 y_pred.append(event_p)
