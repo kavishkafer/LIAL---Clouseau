@@ -9,9 +9,23 @@ win_venv/
 # Local Results
 *results.csv
 
+# Scenario data files (large, store externally e.g. Google Drive)
+artifact/scenarios/**/scenario.csv
+
 # Experiment result directories
 artifact/results_1x_run/
 artifact/results_3x_runs/
+artifact/results_quick_validation/
+
+# Large raw datasets (too large for git)
+artifact/preprocessing/atlas/
+artifact/preprocessing/optc/
+
+# Generated artifact outputs
+artifact/artifact/
+
+# Research PDFs (large binary files)
+*.pdf
 
 # SQLite databases
 *.db

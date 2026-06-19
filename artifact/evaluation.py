@@ -70,7 +70,9 @@ class EvaluationResults:
             'searchprotocolhost.exe', 'werfault.exe', 'svchost.exe', 'explorer.exe', 
             'iexplore.exe', 'chrome.exe', 'powershell.exe', 'powershell', 'wscript.exe', 
             'cscript.exe', 'services.exe', 'lsass.exe', 'taskhost.exe', 'searchindexer.exe',
-            'svchost', 'explorer', 'chrome', 'python.exe', 'python'
+            'svchost', 'explorer', 'chrome', 'python.exe', 'python',
+            'winword.exe', 'winword', 'eqnedt32.exe', 'eqnedt32', 'acrord32.exe', 'acrord32',
+            'excel.exe', 'excel'
         }
 
         file_path = os.path.join(self.data_path, 'scenario.csv')
