@@ -15,6 +15,9 @@ MODERATE_TRUNCATE = {'cmd_line', 'file_path', 'object'}
 
 def format_cell(column_name: str, value) -> str:
     """Truncate cell values based on column semantics to preserve context budget."""
+    import os
+    if os.environ.get('DISABLE_T6') == '1':
+        return str(value)
     if not isinstance(value, str):
         return str(value)
     col = column_name.lower()
@@ -26,6 +29,9 @@ def format_cell(column_name: str, value) -> str:
 
 def prune_messages(messages, keep_last_k=3):
     """Prune older ToolMessage content to keep context window lean."""
+    import os
+    if os.environ.get('DISABLE_T7') == '1':
+        return messages
     tool_count = 0
     pruned = []
     for msg in reversed(messages):

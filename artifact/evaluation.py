@@ -7,13 +7,67 @@ from sklearn.metrics import confusion_matrix
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 class EvaluationResults:
+    def extract_artifacts_from_text(self, text: str) -> dict:
+        """Fallback parser to extract forensic artifacts from plain text if JSON parsing fails."""
+        # Extract IP addresses
+        ips = list(set(re.findall(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', text)))
+        
+        # Extract domains and files using suffix checks
+        words_with_dot = re.findall(r'\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}\b', text)
+        domains = []
+        files = []
+        for w in words_with_dot:
+            w_lower = w.lower()
+            if w_lower.endswith(('.exe', '.dll', '.bat', '.vbs', '.tmp', '.doc', '.docx', '.pdf', '.txt', '.rtf', '.db', '.csv', '.py', '.sh')):
+                files.append(w)
+            else:
+                if not re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', w):
+                    domains.append(w)
+        
+        domains = list(set(domains))
+        files = list(set(files))
+        
+        # Extract PIDs and associate with closest process name
+        all_procs = list(set(re.findall(r'\b\w+\.(?:exe|vbs|bat|sh|py)\b', text, re.IGNORECASE)))
+        pids = re.findall(r'\b\d{3,6}\b', text)
+        
+        mal_procs = []
+        for pid in pids:
+            pid_pos = text.find(pid)
+            # check a window of 60 characters before and after the PID
+            window = text[max(0, pid_pos - 60):min(len(text), pid_pos + 60)]
+            found_proc = ""
+            for proc in all_procs:
+                if proc.lower() in window.lower():
+                    found_proc = proc
+                    break
+            mal_procs.append({
+                "pid": int(pid),
+                "name": found_proc
+            })
+            
+        # Deduplicate processes by PID
+        unique_procs = {}
+        for p in mal_procs:
+            unique_procs[p["pid"]] = p["name"]
+            
+        malicious_processes = [{"pid": pid, "name": name} for pid, name in unique_procs.items()]
+        
+        return {
+            "addresses": ips,
+            "domains": domains,
+            "files": files,
+            "malicious_processes": malicious_processes,
+            "tainted_processes": []
+        }
+
     def parse_report(self, json_report: str) -> dict:
         # Regular expression to match JSON array structures
-        json_report = json_report.replace("\n", "").replace(",}```", "}```")
+        json_report_clean = json_report.replace("\n", "").replace(",}```", "}```")
         json_pattern = r"```json(.*?)```"  # Extract JSON content within code block markers
 
         # Search for JSON structures in the text
-        match = re.search(json_pattern, json_report, re.DOTALL)
+        match = re.search(json_pattern, json_report_clean, re.DOTALL)
         if match:
             # Extract JSON content and clean it
             json_content = match.group(1).strip()
@@ -26,30 +80,18 @@ class EvaluationResults:
 
             try:
                 # Parse the cleaned JSON string
-                # print(json_content)
                 parsed_data = json.loads(json_content)
                 return parsed_data
             except json.JSONDecodeError:
-                print("Failed to parse JSON. Please check the format.")
-                # Regex PID extraction fallback
-                pid_matches = re.findall(r'"pid"\s*:\s*(\d+)', json_content)
-                if pid_matches:
-                    print(f"Extracted {len(pid_matches)} PIDs from malformed JSON via regex fallback.")
-                    return {"malicious_processes": [{"pid": int(p), "name": ""} for p in pid_matches]}
-                return None
+                print("Failed to parse JSON. Falling back to intelligent text extraction.")
+                return self.extract_artifacts_from_text(json_report)
         else:
             try:
                 parsed_data = json.loads(json_report)
                 return parsed_data
             except json.JSONDecodeError:
-                # Handle JSON parsing error
-                print("Failed to parse JSON. Please check the format.")
-                # Regex PID extraction fallback
-                pid_matches = re.findall(r'"pid"\s*:\s*(\d+)', json_report)
-                if pid_matches:
-                    print(f"Extracted {len(pid_matches)} PIDs from malformed JSON via regex fallback.")
-                    return {"malicious_processes": [{"pid": int(p), "name": ""} for p in pid_matches]}
-                return None
+                print("Failed to parse JSON. Falling back to intelligent text extraction.")
+                return self.extract_artifacts_from_text(json_report)
 
     def evaluate_atlas(self):
 
@@ -196,9 +238,9 @@ class EvaluationResults:
         self.input_tokens = 0
         self.output_tokens = 0
         self.total_tokens = 0
-        self.model_name = "None"
+        self.model_name = configs.get('model_name', "None")
 
-        if usage is not None:
+        if usage is not None and usage.usage_metadata:
             self.model_name = next(iter(usage.usage_metadata)) 
             self.input_tokens = usage.usage_metadata[self.model_name]['input_tokens']
             self.output_tokens = usage.usage_metadata[self.model_name]['output_tokens']

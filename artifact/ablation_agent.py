@@ -184,7 +184,12 @@ class AblationAgent:
     def call_eval(self, state: MessagesState):
         eval_prompt = get_prompt_evaluation()
         messages = state["messages"] + [HumanMessage(content=eval_prompt)]
-        response = self.model_no_tools.invoke(messages, max_tokens=self.max_tokens)
+        try:
+            # Bind JSON response format for OpenAI-compatible endpoints
+            json_model = self.model_no_tools.bind(response_format={"type": "json_object"})
+            response = json_model.invoke(messages, max_tokens=self.max_tokens)
+        except Exception:
+            response = self.model_no_tools.invoke(messages, max_tokens=self.max_tokens)
         return {"messages": [response]}
 
 

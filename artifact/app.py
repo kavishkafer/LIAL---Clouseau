@@ -130,7 +130,7 @@ def run_scenarios(scns: List, llm: ChatOpenAI, configs: Dict, ablation: bool, da
             # IP-based investigations require tracing multi-hop chains and
             # historically have the worst recall (6% and 1.15% on s1/se2).
             # Giving them more iterations directly targets this gap.
-            if p[1] == 'IP':
+            if p[1] == 'IP' and os.environ.get('DISABLE_T5') != '1':
                 poi_cfg['max_investigations'] = constants.IP_MAX_INVESTIGATIONS
                 poi_cfg['max_questions']      = constants.IP_MAX_QUESTIONS
                 poi_cfg['max_queries']        = constants.IP_MAX_QUERIES
@@ -243,6 +243,7 @@ if __name__ == '__main__':
 
     # get LLM
     model = os.environ.get('LLM_MODEL', None)
+    configs['model_name'] = model
     api_key = os.environ.get('API_KEY', None)
     base_url = os.environ.get('BASE_URL', None)
 

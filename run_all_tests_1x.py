@@ -17,8 +17,50 @@ class FullTestRunner:
     
     def __init__(self):
         self.artifact_dir = Path("artifact")
-        self.results_dir = Path("artifact/results_1x_run").resolve()
-        self.results_dir.mkdir(exist_ok=True)
+        
+        # Determine results directory
+        results_dir_env = os.environ.get("RESULTS_DIR")
+        if results_dir_env:
+            self.results_dir = Path(results_dir_env).resolve()
+            print(f"--> Using RESULTS_DIR from environment: {self.results_dir}")
+        else:
+            # Resolve model ID dynamically to determine target directory
+            env = os.environ.copy()
+            base_url = env.get('BASE_URL', 'http://172.31.0.94:8000/v1')
+            resolved_model = env.get('LLM_MODEL', None)
+            
+            if not resolved_model:
+                import urllib.request
+                import json
+                try:
+                    req = urllib.request.Request(f"{base_url}/models")
+                    with urllib.request.urlopen(req, timeout=3) as response:
+                        data = json.loads(response.read().decode())
+                        if data and "data" in data and len(data["data"]) > 0:
+                            resolved_model = data["data"][0]["id"]
+                except Exception:
+                    pass
+            
+            if resolved_model:
+                model_basename = os.path.basename(resolved_model.rstrip("/"))
+                model_slug = model_basename.lower().replace("-", "_").replace(".", "_")
+                if "gemma_4" in model_slug or "gemma-4" in resolved_model:
+                    model_slug = "gemma4_26b_bf16"
+                elif "nemotron_3" in model_slug or "nemotron" in resolved_model.lower():
+                    model_slug = "nemotron3_super_nvfp4"
+                elif "qwen3_6" in model_slug or "qwen3.6" in resolved_model.lower():
+                    model_slug = "qwen3_6_35b_a3b_instruct"
+                elif "qwen3_5" in model_slug or "qwen3.5" in resolved_model.lower():
+                    model_slug = "qwen3_5_9b_instruct"
+                elif "deepseek" in model_slug or "deepseek" in resolved_model.lower():
+                    model_slug = "deepseek_v4_flash"
+            else:
+                model_slug = "unknown_model"
+                
+            self.results_dir = (self.artifact_dir / "results" / model_slug).resolve()
+            
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+        print(f"--> Selected results directory based on model/configuration: {self.results_dir}")
         self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         # Test configurations: (flag, output_name, display_name, test_count)

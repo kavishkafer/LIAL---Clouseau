@@ -73,6 +73,7 @@ def main():
         "max_questions":      constants.DEFAULT_QUESTIONS,
         "max_queries":        constants.DEFAULT_QUERIES,
         "max_tokens":         constants.DEFAULT_MAX_TOKENS,
+        "model_name":         model,
     }
 
     # ── build the full scenario × POI list the same way app.py does ──────────
