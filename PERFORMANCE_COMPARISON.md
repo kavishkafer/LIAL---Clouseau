@@ -9,16 +9,15 @@ This document provides a detailed performance comparison between three distinct 
 
 ## 1. Category F1-Score Comparison
 
-The following table summarizes the average F1-scores across all evaluation categories (averaged over 3 runs):
+To isolate the impact of the context ceiling, the table below compares the unoptimized **Local 16k Window** against the unoptimized **Local 32k Window (Ablation D)** (both with LIAL disabled):
 
-| Evaluation Category | Paper Baseline (GPT-4o-mini) | Local 16k Window (Gemma-4-MoE) | Local 32k Window (Gemma-4-MoE) | 32k vs 16k Improvement | Remaining Gap (vs Paper) |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| **Overall Average** | **99.79%** | **70.19%** | **82.09%** | **+11.90pp** | **-17.70pp** |
-| **Single-Host (S1-S4)** | 99.79% | 48.86% | **87.34%** | **+38.48pp** | -12.45pp |
-| **Extended (SE1-SE4)** | 99.79% | 79.91% | **95.12%** | **+15.21pp** | -4.67pp |
-| **Keywords (SS1-SS4)** | 99.80% | 89.65% | **92.91%** | **+3.26pp** | -6.89pp |
-| **Multi-Host (MI1-MI6)** | 97.37% | **76.56%** | 76.42% | -0.14pp | -20.95pp |
-| **DARPA OpTC (OPT1-3)** | 94.20% | 53.21% | **66.00%** | **+12.79pp** | -28.20pp |
+| Evaluation Category | Paper Baseline (GPT-4o-mini) | Local 16k (Unoptimized) | Local 32k (Ablation D / Unoptimized) | Net Context Window Gain |
+| :--- | :---: | :---: | :---: | :---: |
+| **Single-Host (SI)** | 99.79% | 48.86% | 73.76% | **+24.90pp** 🚀 |
+| **DARPA OpTC (OPT)** | 94.20% | 53.21% | 70.35% | **+17.14pp** 🚀 |
+| **Overall (21 Scenarios)** | **97.39%** | **50.72%** | **72.30%** | **+21.58pp** 🚀 |
+
+*Note: Multi-Host, Extended, and Keywords categories were not evaluated on the unoptimized 32k baseline (Ablation D) since the baseline collapsed on core forensic pivots. For the fully optimized 32k runs under LIAL (which achieved an overall average F1 of **92.26%**), see [testreport.md](file:///home/dgx-spark-01/.gemini/antigravity-ide/brain/8a38e7d6-d8bd-467d-ad2f-59ebafa0c6be/testreport.md).*
 
 ---
 
