@@ -211,7 +211,8 @@ metrics · run_complete
 - Keep the demo **offline-capable** — no external CDNs at runtime for the packaged build.
 - Prefer reusing existing budgets/optimizations (Batch-1 token management) — they matter at 25 tps.
 - Branch: **`demo/live-observatory`** (off `optimize/batch1-token-management`, so the demo
-  inherits token optimizations). Do not commit `RESEARCH_GAP_ANALYSIS.md` or `arxiv_results.json`.
+  inherits token optimizations). Do not commit local research/analysis notes or
+  scratch result files — keep them untracked (gitignored).
 
 ## 8. Open questions / decisions still to confirm
 - [ ] **Campaign mode (multi-host live stitching)** — the real remaining gap. Needs
@@ -255,8 +256,9 @@ NOT on when the graph is assembled.** Two separate steps:
 Why the Chief's final report is NOT a sufficient source: the pipeline is lossy by
 design (QA prunes old tool results; investigators return prose summaries; the Chief
 only sees summaries). By the end, the row-level evidence is gone from the Chief's
-context. Structuring the Chief's narrative with an LLM = ungrounded (reproduces
-Gap 7). Grounded structure can only come from evidence captured at the tool layer.
+context. Structuring the Chief's narrative with an LLM = ungrounded (it would draw
+edges nothing verified). Grounded structure can only come from evidence captured at
+the tool layer.
 
 ### 9.2 Evidence store → end-of-run KG → verification
 1. **Evidence store**: append-only log (JSONL to start) of entities + relationships
@@ -291,7 +293,7 @@ Gap 7). Grounded structure can only come from evidence captured at the tool laye
 - **(A) Observer KG**: capture → side store → KG, agent unaffected, flag-gated,
   byte-identical when off. **Build this first.** Zero behavioral risk.
 - **(B) Working-memory re-injection**: feed a compacted "key findings" store *back*
-  into the agent's context so it doesn't forget early findings (Gap 3 proper).
+  into the agent's context so it doesn't forget early findings.
   Changes investigation behavior; bigger swing; **separate research experiment.**
 - Both write to the **same KG** — the KG is the shared substrate; the demo reads it
   (viz), and optionally the agent also reads it (memory). Do A now, B later.
@@ -330,12 +332,12 @@ agents: 11"). Do not animate 15 concurrent agents — technical viewers will cat
   (plain dicts, or `networkx` for layout/pathfinding) + JSONL; graduate to SQLite →
   graph DB (Neo4j) / TSDB later. Get schema + provenance right first; infra later.
 
-### 9.8 Research convergence (why this is thesis, not scaffolding)
-One design instantiates three gaps from `RESEARCH_GAP_ANALYSIS.md`: **Gap 3**
-(the KG is the long-term tier of hierarchical memory), **Gap 7** (nodes/edges carry
-`source_query_id`/`source_row_id` — Grounded Findings), **Gap 8** (the KG *is* the
-Evidence Graph / audit trail). "Watch it reconstruct the attack — and every claim is
-evidence-linked, not hallucinated" is the pitch.
+### 9.8 Why grounding matters for the demo
+Truthfulness, not rigor for its own sake: at an official venue, every node and edge
+on screen must reflect something the investigation actually observed. Carrying
+`source_query`/`source_row` on each node/edge is simply how we guarantee we never
+render a claim the data doesn't support. The pitch is "watch it reconstruct the
+attack — and every claim traces to real evidence, not a guess."
 
 ### 9.9 First-cut build scope (agreed)
 Observer KG only (A, not B) · deterministic/grounded edges only (defer the bounded
