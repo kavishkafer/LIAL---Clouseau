@@ -76,6 +76,7 @@
     margin: 0; background: var(--page); color: var(--ink-1);
     font-family: var(--body); -webkit-font-smoothing: antialiased;
     display: flex; flex-direction: column; min-height: 100vh;
+    position: relative; /* containing block for #hero.expanded — see note below */
   }
   ::selection { background: var(--brand-wash); }
   button, select, input { font-family: inherit; }
@@ -122,8 +123,10 @@
     display: flex; align-items: center; justify-content: center;
     width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border-2);
     background: var(--surface-2); color: var(--ink-1); cursor: pointer;
+    transition: background .15s ease, transform .1s ease;
   }
   .transport button:hover { background: var(--border); }
+  .transport button:active { transform: scale(.92); }
   .transport button.primary { background: var(--brand); color: #fff; border-color: transparent; }
   .transport button:disabled { opacity: 0.35; cursor: not-allowed; }
   .transport .speedgrp { display: flex; border: 1px solid var(--border-2); border-radius: 8px; overflow: hidden; }
@@ -180,7 +183,10 @@
   main.console-body {
     flex: 1 1 auto; display: grid; min-height: 0;
     grid-template-columns: 232px 1fr 340px;
-    grid-template-rows: 1fr auto minmax(0, 240px) auto;
+    /* Row 1 is capped (not 1fr) so the console reads as a compact console by
+       default, not a graph that already fills the screen — expand should be
+       a big, obvious jump, not a marginal one. */
+    grid-template-rows: minmax(280px, 46vh) auto minmax(0, 240px) auto;
     grid-template-areas:
       "org  hero  narr"
       "org  hero  evtoggle"
@@ -214,10 +220,13 @@
 
   .org-node {
     position: relative; margin-bottom: 4px; padding: 9px 10px; border-radius: 8px;
-    border: 1px solid var(--border); background: var(--surface-1);
-    opacity: 0.4; transform: translateY(-2px); transition: opacity .35s, transform .35s, box-shadow .35s, border-color .35s;
+    border: 1px solid var(--border); background: var(--surface-1); cursor: pointer;
+    opacity: 0; transform: translateY(-6px) scale(.92);
+    transition: opacity .4s cubic-bezier(.16,1,.3,1), transform .4s cubic-bezier(.16,1,.3,1),
+      box-shadow .2s ease, border-color .2s ease, background .15s ease;
   }
-  .org-node.show { opacity: 1; transform: translateY(0); }
+  .org-node:hover { background: var(--surface-2); }
+  .org-node.show { opacity: 1; transform: translateY(0) scale(1); }
   .org-node .name { font-size: 12.5px; font-weight: 600; display:flex; align-items:center; gap:7px; }
   .org-node .name .sw { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
   .org-node .sub { font-size: 10.5px; color: var(--ink-3); margin-top: 2px; padding-left: 15px; }
@@ -228,45 +237,76 @@
   .org-node.qa { margin-left: 24px; }
   .org-node.qa .name { font-size: 11.5px; }
 
+  /* "Spin-up" ping — plays once when an agent node first appears, so a newly
+     dispatched investigator/QA agent visibly announces itself rather than
+     just quietly fading in. */
+  .org-node::after {
+    content: ''; position: absolute; inset: 0; border-radius: 8px;
+    border: 2px solid var(--ring, var(--brand)); opacity: 0; pointer-events: none;
+  }
+  .org-node.spinup::after { animation: nodeSpinup .6s ease-out; }
+  @keyframes nodeSpinup {
+    0%   { opacity: .9; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.4); }
+  }
+
+  .node-detail {
+    margin-top: 7px; margin-left: 15px; padding: 7px 9px; border-radius: 6px;
+    background: var(--surface-2); border: 1px solid var(--border); font-size: 10.5px; color: var(--ink-2);
+    animation: detailIn .2s cubic-bezier(.16,1,.3,1);
+  }
+  @keyframes detailIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+  .node-detail-line { padding: 2px 0; border-top: 1px solid var(--border); }
+  .node-detail-line:first-child { border-top: none; }
+  .node-detail-line.muted { color: var(--ink-3); font-style: italic; }
+
   /* ---------- center hero: view switcher + graph/timeline ---------- */
   .viewtabs { display: flex; gap: 4px; }
   .viewtabs button {
     padding: 5px 11px; border-radius: 6px; border: 1px solid transparent; background: transparent;
     color: var(--ink-3); font-size: 11.5px; font-weight: 600; cursor: pointer; letter-spacing: 0.02em;
+    transition: background .15s ease, color .15s ease;
   }
+  .viewtabs button:hover { color: var(--ink-1); }
   .viewtabs button.active { background: var(--brand-wash); color: var(--brand); }
 
   #graphview, #aptview { width: 100%; height: 100%; display: none; }
   #graphview.active, #aptview.active { display: block; }
-  #graphview .panel-body, #aptview .panel-body { position: relative; }
+  #graphview .panel-body, #aptview .panel-body {
+    position: relative; display: flex; align-items: center; justify-content: center;
+  }
 
   .expand-btn {
     display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
     border-radius: 6px; border: 1px solid var(--border-2); background: transparent; color: var(--ink-3);
-    cursor: pointer; font-size: 14px; line-height: 1;
+    cursor: pointer; font-size: 14px; line-height: 1; transition: background .15s ease, color .15s ease;
   }
   .expand-btn:hover { background: var(--surface-2); color: var(--ink-1); }
-  /* Expand by re-flowing the grid itself (hide siblings, hero spans everything)
-     rather than position:fixed — some embedding contexts apply their own CSS
-     transform to the page for scaling, which changes the containing block for
-     fixed-position descendants and silently breaks them. Reflowing the grid
-     has no such dependency. */
-  main.console-body.hero-expanded #orgchart,
-  main.console-body.hero-expanded #narration,
-  main.console-body.hero-expanded #evidence-toggle-row,
-  main.console-body.hero-expanded #evidence,
-  main.console-body.hero-expanded #artifacts,
-  main.console-body.hero-expanded #metrics {
-    display: none;
+
+  /* Expand: position:absolute relative to <body> (not position:fixed relative
+     to the true viewport) — an embedding page can apply its own CSS transform
+     to scale the page, which becomes the containing block for fixed-position
+     descendants and silently breaks them. body is OUR OWN ancestor, so
+     binding to it is immune to that. */
+  #hero { position: relative; }
+  #hero.expanded {
+    position: absolute; inset: 18px; z-index: 200;
+    border-radius: 16px; box-shadow: 0 40px 110px rgba(0,0,0,.55);
+    animation: heroPopIn .3s cubic-bezier(.16, 1, .3, 1);
   }
-  main.console-body.hero-expanded {
-    grid-template-areas: none;
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr;
+  @keyframes heroPopIn {
+    from { opacity: 0; transform: scale(.95); }
+    to { opacity: 1; transform: scale(1); }
   }
-  main.console-body.hero-expanded #hero {
-    grid-column: 1; grid-row: 1;
+  /* Default: a modest, centered preview — not "already fills the screen".
+     Expand lifts the cap so the same SVG grows to fill the popped panel,
+     instead of the panel merely growing around unchanged content. */
+  #recon-svg {
+    max-width: 640px; max-height: 380px;
+    transition: max-width .3s cubic-bezier(.16, 1, .3, 1), max-height .3s cubic-bezier(.16, 1, .3, 1);
   }
+  #hero.expanded #recon-svg { max-width: none; max-height: none; }
+  #aptview .panel-body { align-items: flex-start; }
 
   svg#recon-svg { width: 100%; height: 100%; display: block; }
   .g-node rect, .g-node circle, .g-node polygon { stroke-width: 1.6; transition: opacity .5s; }
@@ -537,21 +577,52 @@ const ROLE_COLOR = { chief: 'var(--role-chief)', investigator: 'var(--role-inves
 const STATUS_COLOR = { critical: 'var(--st-critical)', serious: 'var(--st-serious)', warning: 'var(--st-warning)', good: 'var(--st-good)' };
 
 // Known agent ids get a friendly label; anything else (e.g. "qa-audit_logs"
-// from a live run) falls back to a title-cased version of its id.
+// from a live run) falls back to a title-cased version of its id. Every QA
+// agent shares the same base label — "QA Agent (<specialization>)" — so the
+// hierarchy reads as one agent TYPE with different table specialties,
+// matching the actual architecture (a generic QA mini-agent per table).
 const AGENT_META = {
   'chief-1': { label: 'Chief Inspector', role: 'chief' },
   'system':  { label: 'Evaluation', role: 'system' },
 };
+const ACRONYMS = { Dns: 'DNS', Http: 'HTTP', Ip: 'IP', Sql: 'SQL', Pid: 'PID' };
+function titleCase(s) {
+  return s.replace(/\b\w/g, c => c.toUpperCase()).replace(/\b(Dns|Http|Ip|Sql|Pid)\b/g, w => ACRONYMS[w]);
+}
 function metaFor(agentId, role) {
   if (AGENT_META[agentId]) return AGENT_META[agentId];
   if (agentId && agentId.startsWith('investigator')) return { label: 'Investigator' + (agentId.includes('-') ? ' · ' + agentId.split('-').slice(1).join('-') : ''), role: 'investigator' };
-  if (agentId && agentId.startsWith('qa')) return { label: agentId.replace(/^qa-/, '').replace(/_/g, ' ') + ' specialist', role: 'qa' };
+  if (agentId && agentId.startsWith('qa')) {
+    const spec = titleCase(agentId.replace(/^qa-/, '').replace(/_/g, ' '));
+    return { label: `QA Agent (${spec})`, role: 'qa' };
+  }
   return { label: agentId || role || 'system', role: role || 'system' };
 }
 
 /* ---------------- org chart ---------------- */
 const orgBody = document.getElementById('orgchart-body');
 const orgNodes = {};
+const perAgentLog = {};   // agentId -> recent narration lines, for the click-to-inspect detail
+function logForAgent(agentId, narration) {
+  if (!agentId || !narration) return;
+  const log = (perAgentLog[agentId] = perAgentLog[agentId] || []);
+  log.push(narration);
+  if (log.length > 5) log.shift();
+}
+function renderNodeDetail(agentId, container) {
+  const lines = perAgentLog[agentId] || [];
+  container.innerHTML = lines.length
+    ? lines.slice().reverse().map(l => `<div class="node-detail-line">${escapeHtml(l)}</div>`).join('')
+    : '<div class="node-detail-line muted">No activity yet.</div>';
+}
+function toggleNodeDetail(agentId, el) {
+  const existing = el.querySelector('.node-detail');
+  if (existing) { existing.remove(); return; }
+  const detail = document.createElement('div');
+  detail.className = 'node-detail';
+  renderNodeDetail(agentId, detail);
+  el.appendChild(detail);
+}
 function ensureOrgNode(agentId, role) {
   if (orgNodes[agentId]) return orgNodes[agentId];
   const meta = metaFor(agentId, role);
@@ -560,8 +631,12 @@ function ensureOrgNode(agentId, role) {
   el.style.setProperty('--ring', ROLE_COLOR[meta.role]);
   el.style.setProperty('--glow', ROLE_COLOR[meta.role]);
   el.innerHTML = `<div class="name"><span class="sw" style="background:${ROLE_COLOR[meta.role]}"></span>${meta.label}</div><div class="sub"></div>`;
+  el.addEventListener('click', () => toggleNodeDetail(agentId, el));
   orgBody.appendChild(el);
-  requestAnimationFrame(() => el.classList.add('show'));
+  requestAnimationFrame(() => {
+    el.classList.add('show', 'spinup');
+    setTimeout(() => el.classList.remove('spinup'), 650);
+  });
   orgNodes[agentId] = el;
   return el;
 }
@@ -587,6 +662,11 @@ function pushNarration(ev) {
     <span class="txt"><span class="agent">${escapeHtml(meta.label)}</span>${escapeHtml(ev.narration || '')}</span>`;
   ticker.appendChild(line);
   ticker.scrollTop = ticker.scrollHeight;
+
+  logForAgent(ev.agent_id, ev.narration);
+  const nodeEl = orgNodes[ev.agent_id];
+  const openDetail = nodeEl && nodeEl.querySelector('.node-detail');
+  if (openDetail) renderNodeDetail(ev.agent_id, openDetail);
 }
 
 /* ---------------- evidence stream ---------------- */
@@ -714,14 +794,14 @@ tabGraph.addEventListener('click', () => { tabGraph.classList.add('active'); tab
 tabApt.addEventListener('click', () => { tabApt.classList.add('active'); tabGraph.classList.remove('active'); viewApt.classList.add('active'); viewGraph.classList.remove('active'); });
 
 /* ---------------- expand / focus the hero panel ---------------- */
-const consoleBody = document.querySelector('main.console-body');
+const heroPanel = document.getElementById('hero');
 const expandBtn = document.getElementById('btn-expand');
 function setExpanded(on) {
-  consoleBody.classList.toggle('hero-expanded', on);
+  heroPanel.classList.toggle('expanded', on);
   expandBtn.textContent = on ? '⤡' : '⤢';
   expandBtn.title = on ? 'Collapse' : 'Expand';
 }
-expandBtn.addEventListener('click', () => setExpanded(!consoleBody.classList.contains('hero-expanded')));
+expandBtn.addEventListener('click', () => setExpanded(!heroPanel.classList.contains('expanded')));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setExpanded(false); });
 
 /* ---------------- metrics footer ---------------- */
@@ -787,6 +867,7 @@ function resetConsole() {
   nodesLayer.innerHTML = ''; edgesLayer.innerHTML = '';
   Object.keys(gNodes).forEach(k => delete gNodes[k]);
   orgBody.innerHTML = ''; Object.keys(orgNodes).forEach(k => delete orgNodes[k]);
+  Object.keys(perAgentLog).forEach(k => delete perAgentLog[k]);
   Object.values(stageCols).forEach(col => {
     col.classList.remove('lit');
     col.querySelector('.stage-connector').classList.remove('lit');
