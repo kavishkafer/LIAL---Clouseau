@@ -219,14 +219,10 @@ metrics · run_complete
       host 2 with the pivot as the lead → merge both runs' events into one
       `run_id`/stream/graph. Today, live runs are single-host only; the two-host
       story only exists in the sample recording.
-- [ ] **`graphOp` for live runs** — `observability.py` emits `artifact_found`/
-      `pivot_found` with rich `detail`, but not the node/edge layout hints
-      (`graphOp`) the frontend's reconstruction graph currently relies on (those
-      only exist hand-authored in the sample recording). Needs a small mapper:
-      artifact detail → graph node/edge, probably living in the backend (keeps
-      `observability.py` UI-agnostic) or in the frontend itself (derive layout from
-      `artifact_found`/`pivot_found` fields directly, no backend change needed —
-      likely the simpler path).
+- [x] ~~**`graphOp` for live runs**~~ **SUPERSEDED by §9 (agreed 2026-07-27).** The
+      live reconstruction graph is no longer built from per-event `graphOp` layout
+      hints. It is materialized at end-of-run from a captured evidence store
+      (grounded KG), with layout computed client-side. See §9 for the full design.
 - [ ] Which specific M-scenario is the "hero" (need one with a clean, legible
       lateral-movement chain) — blocked on obtaining M1–M6 scenario DBs (not on
       this dev machine; presumably on the DGX or external storage).
@@ -240,7 +236,115 @@ metrics · run_complete
       machine — built a static console instead (see §4). Not abandoned, just
       deferred to whenever a Node-capable machine is available.
 
-## 9. Status Log
+## 9. Agreed evolution — grounded knowledge graph + two-act center (design locked 2026-07-27, NOT yet built)
+
+This section supersedes the earlier "graphOp for live runs" gap (§8). It is the
+agreed architecture for making the reconstruction graph real (and grounded) on
+*live* runs, worked out in a design discussion. No code written yet.
+
+### 9.1 The grounding principle
+**Grounding depends on capturing raw evidence *during* the run (before pruning),
+NOT on when the graph is assembled.** Two separate steps:
+- **Evidence capture** — MUST happen inside the tool hooks (`run_sql_query`, the
+  process-tree tools in `qa_agent.py`), where the *full* rows exist. Pruning
+  (`prune_messages`) only trims the LLM's *context window*; the tool functions
+  still receive/return full data, and our hooks run there, so capturing a copy
+  costs the LLM zero tokens and doesn't alter its context. Flag-gated as usual.
+- **KG assembly** — can happen whenever; **doing it once at end-of-run is preferred.**
+
+Why the Chief's final report is NOT a sufficient source: the pipeline is lossy by
+design (QA prunes old tool results; investigators return prose summaries; the Chief
+only sees summaries). By the end, the row-level evidence is gone from the Chief's
+context. Structuring the Chief's narrative with an LLM = ungrounded (reproduces
+Gap 7). Grounded structure can only come from evidence captured at the tool layer.
+
+### 9.2 Evidence store → end-of-run KG → verification
+1. **Evidence store**: append-only log (JSONL to start) of entities + relationships
+   seen in raw tool results, each with provenance `{source_query, source_row, ts}`.
+   Grows freely; it's the ground truth / audit trail / time-series record.
+2. **End-of-run assembly** (preferred over incremental — better entity resolution
+   with all mentions visible at once; simpler, less stateful): materialize a KG
+   from the store.
+3. **Grounding verification** (only possible in batch, over the *complete* store):
+   cross-check every eval-committed finding against captured evidence; **drop or
+   flag any node the Chief claimed that no actual query returned.** This is the
+   Gap-7 check and it's the strongest form of grounding.
+4. **Render** = eval-committed nodes (clean, denoised) + edges looked up in the KG
+   (grounded — an edge shows only if the store has evidence for it). Layout is
+   **client-side deterministic** (layered by kill-chain stage or force-directed);
+   never ask the LLM for x/y.
+
+### 9.3 Two hard parts (design carefully, don't hand-wave)
+- **Entity resolution**: canonical merge keys per type — process = `(host, pid,
+  creation_time)` (creation_time because **PIDs get reused**); ip = address;
+  domain = FQDN; file = `(host, path)`. Wrong key ⇒ split one entity or merge two.
+- **Edge selection**: process trees give `spawned` and flow logs give
+  `connected-to` for free (fully grounded). Softer edges (`delivered`, `opened-by`)
+  aren't purely mechanical. First cut: **deterministic/grounded edges only**
+  (sparser but 100% provable). Optional later: a *bounded* LLM pass that may only
+  connect/label nodes the KG already established (can mislabel, **cannot fabricate
+  a node**) — kept as a separate, flag-gated call, **never folded into `call_eval`**
+  (that call feeds precision/recall/F1; touching its prompt/schema perturbs the
+  research metric and breaks flag-OFF-byte-identical).
+
+### 9.4 Observer KG vs agent-memory — keep separate
+- **(A) Observer KG**: capture → side store → KG, agent unaffected, flag-gated,
+  byte-identical when off. **Build this first.** Zero behavioral risk.
+- **(B) Working-memory re-injection**: feed a compacted "key findings" store *back*
+  into the agent's context so it doesn't forget early findings (Gap 3 proper).
+  Changes investigation behavior; bigger swing; **separate research experiment.**
+- Both write to the **same KG** — the KG is the shared substrate; the demo reads it
+  (viz), and optionally the agent also reads it (memory). Do A now, B later.
+
+### 9.5 Two-act center with three switchable tabs
+The center panel is no longer empty-until-the-end. It has **three tabs the presenter
+can switch freely** — **Agents · Reconstruction graph · APT kill-chain** — plus an
+automatic default:
+- **Default to "Agents"** during the run (live from the first event).
+- **Auto-advance to "Reconstruction graph" on `run_complete`** (the payoff reveal)
+  — **unless the presenter has manually pinned a tab**, then don't override.
+- **APT kill-chain** fills live during the run (from `stage` tags).
+- **Reconstruction graph** during the run shows a quiet placeholder ("assembles when
+  the investigation completes"); the grounded KG populates it at the end.
+
+**Act 1 = the investigation** (live agent topology): "how the AI works."
+**Act 2 = the reconstruction** (grounded evidence graph): "what it found."
+Two distinct acts, two audiences (agentic/AI crowd vs security crowd).
+
+### 9.6 Live agent-topology honesty constraints
+The "Agents" view is a faithful rendering of Clouseau's real lifecycle (Chief
+long-lived; investigators short-lived; QA agents ephemeral), driven by events we
+already emit (`lead_dispatched`, `investigator_started`, `qa_question`,
+`investigator_summary`, `pivot_found`; teardown inferred or a small explicit event).
+**Honesty caveat:** at any instant it's a *small tree* (Chief → 1 active investigator
+→ 1 active QA agent — tool calls run sequentially), NOT a swarm. The drama is churn +
+fan-out over time. Design truthfully: highlight the active path, let finished agents
+linger as fading "ghosts" briefly, show a cumulative tally ("Investigators: 3 · QA
+agents: 11"). Do not animate 15 concurrent agents — technical viewers will catch it.
+
+### 9.7 Pydantic + persistence (now load-bearing, not nice-to-haves)
+- **Pydantic** `Node` / `Edge` models with required `source_query` fields make
+  grounding *enforceable* — an ungrounded edge won't validate.
+- **Persistence**: the evidence stream is timestamped, so append-only **JSONL is the
+  time-series log**, and the **KG is a materialized view** over it. Start in-memory
+  (plain dicts, or `networkx` for layout/pathfinding) + JSONL; graduate to SQLite →
+  graph DB (Neo4j) / TSDB later. Get schema + provenance right first; infra later.
+
+### 9.8 Research convergence (why this is thesis, not scaffolding)
+One design instantiates three gaps from `RESEARCH_GAP_ANALYSIS.md`: **Gap 3**
+(the KG is the long-term tier of hierarchical memory), **Gap 7** (nodes/edges carry
+`source_query_id`/`source_row_id` — Grounded Findings), **Gap 8** (the KG *is* the
+Evidence Graph / audit trail). "Watch it reconstruct the attack — and every claim is
+evidence-linked, not hallucinated" is the pitch.
+
+### 9.9 First-cut build scope (agreed)
+Observer KG only (A, not B) · deterministic/grounded edges only (defer the bounded
+LLM edge-labeling pass) · capture-live + assemble-at-end + animated reveal (defer
+true incremental live-tracking) · in-memory KG + JSONL log · Pydantic Node/Edge with
+provenance · three-tab center with auto-default. Everything deferred layers on top
+without rework.
+
+## 10. Status Log
 - **2026-07-27** — Plan approved. Branch `demo/live-observatory` created off
   `optimize/batch1-token-management`. This handoff file authored. No code written yet.
   Next: Phase 0 — `artifact/observability.py` (event bus + callback handler + env-guarded hooks).
@@ -283,3 +387,18 @@ metrics · run_complete
     `graphOp` emission for live runs — see §8. Everything else in this session's
     scope is built and tested to the extent this environment allows (no Node, no
     real LLM endpoint, no M-series data).
+- **2026-07-27 (design session — grounded KG + two-act center)** — Worked out the
+  architecture for making the reconstruction graph real & grounded on live runs;
+  written up as §9. Key decisions: capture raw evidence at the tool layer *before*
+  pruning → assemble a grounded KG at end-of-run → verify committed findings against
+  captured evidence; the Chief's report alone is NOT a grounded source (post-prune
+  prose). Center becomes a three-tab view (Agents / Reconstruction / APT) — live
+  agent topology during the run (Act 1), grounded reconstruction graph revealed at
+  completion (Act 2). First-cut scope locked in §9.9. **No code written this
+  session — design only.** Also, in the same session, fixed several frontend UI bugs
+  (grid mis-placement putting the graph in the wrong column; a mistargeted centering
+  selector leaving dead space; added reactive expand, clickable agent nodes,
+  spin-up animation, and "QA Agent (<specialization>)" naming) — all committed &
+  pushed (`cd0d6f5`, `07cfbf2`, `ca03f55`, and earlier).
+  **Next: implement §9** — Pydantic Node/Edge + evidence capture hooks + end-of-run
+  KG assembler + verification + the three-tab center + live agent-topology view.
