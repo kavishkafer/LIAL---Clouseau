@@ -10,7 +10,9 @@ from typing import Annotated
 import constants
 import prompts
 import os
+import json
 from handoff_logger import log_run_start, log_tool_event, log_run_end
+import observability
         
 class investigate_ctx(dict):
     def __init__(self, llm: BaseChatModel, configs: dict):
@@ -102,6 +104,13 @@ class Clouseau:
             else:
                 args = t['args'].copy()
                 args['ctx'] = self.ctx
+                host_label = self.configs.get('host_label') or self.configs.get('test_name')
+                observability.emit(
+                    self.configs.get('run_id'), 'lead_dispatched', role='chief', agent_id='chief-1',
+                    host=host_label,
+                    narration=f"Chief Inspector dispatches an Investigator: “{args.get('lead', '')}”",
+                    detail={'lead': args.get('lead')},
+                )
                 result = self.tools[t['name']].invoke(args)
                 self.current_iteration += 1
                 log_tool_event(
@@ -121,6 +130,23 @@ class Clouseau:
             return True
         return False
 
+    def _emit_pivots(self, text: str) -> None:
+        """Parse the "PIVOTS FOUND:" block the chief prompt asks for (prompts.py)
+        and emit a pivot_found event per line — the signal that drives the
+        multi-host lateral-movement view in the demo UI."""
+        run_id = self.configs.get('run_id')
+        if not run_id or not text or 'PIVOTS FOUND' not in text:
+            return
+        host_label = self.configs.get('host_label') or self.configs.get('test_name')
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith('-') and '->' in line:
+                observability.emit(
+                    run_id, 'pivot_found', role='chief', agent_id='chief-1', host=host_label,
+                    stage='Lateral Movement', narration=f"Pivot identified: {line.lstrip('- ').strip()}",
+                    detail={'raw': line.lstrip('- ').strip()},
+                )
+
     def call_model(self, state: MessagesState):
 
         messages = state['messages']
@@ -129,8 +155,15 @@ class Clouseau:
             response = self.model_no_tools.invoke(messages, max_tokens=self.max_tokens)
             return {"messages": [response]}
         else:
+            observability.emit(
+                self.configs.get('run_id'), 'chief_thinking', role='chief', agent_id='chief-1',
+                host=self.configs.get('host_label') or self.configs.get('test_name'),
+                narration="The Chief Inspector is reviewing findings and planning the next step.",
+            )
             response = self.model.invoke(messages, max_tokens=self.max_tokens)
-            if self.current_iteration < constants.DEFAULT_INVESTIGATION_MIN: 
+            if isinstance(response.content, str):
+                self._emit_pivots(response.content)
+            if self.current_iteration < constants.DEFAULT_INVESTIGATION_MIN:
                 #make sure the investigation is thorough, if the agent quits early we need to push it do more
                 if not self.is_tool_call(response):
                     # not a tool call, the agent is quitting, push them a bit farther
@@ -151,6 +184,10 @@ class Clouseau:
             return {"messages": [response]}
     
     def call_eval(self, state: MessagesState):
+        observability.emit(
+            self.configs.get('run_id'), 'eval_started', role='system', agent_id='system',
+            narration="Evaluating the reconstructed report against ground truth.",
+        )
         eval_prompt = get_prompt_evaluation()
         messages = state["messages"] + [HumanMessage(content=eval_prompt)]
         try:
@@ -162,12 +199,63 @@ class Clouseau:
         return {"messages": [response]}
 
 
+def _emit_artifacts_from_eval(run_id: str, host_label, eval_json_text) -> None:
+    """Emit artifact_found events from the final structured eval report (the
+    same addresses/domains/files/malicious_processes/tainted_processes JSON
+    evaluation.py scores against — see prompts.eval_agent). This is the
+    grounded, deterministic signal for "what was found": mid-run SQL results
+    don't reliably say which row is an attack artifact, that judgment only
+    exists once the chief has produced its structured findings."""
+    if not observability.is_enabled() or not isinstance(eval_json_text, str):
+        return
+    text = eval_json_text.strip()
+    if text.startswith('```'):
+        text = text.strip('`')
+        if text.lower().startswith('json'):
+            text = text[4:]
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return
+    items = data[0] if isinstance(data, list) and data else data
+    if not isinstance(items, dict):
+        return
+
+    def emit_artifact(artifact_type, value, **extra):
+        if not value:
+            return
+        detail = {'artifact_type': artifact_type, 'value': value, **extra}
+        stage = observability.infer_stage('artifact_found', detail)
+        observability.emit(
+            run_id, 'artifact_found', role='qa', agent_id='system', host=host_label, stage=stage,
+            narration=f"Artifact recorded: {artifact_type} {value}.", detail=detail,
+        )
+
+    for addr in items.get('addresses') or []:
+        emit_artifact('address', addr)
+    for dom in items.get('domains') or []:
+        emit_artifact('domain', dom)
+    for f in items.get('files') or []:
+        emit_artifact('file', f)
+    for proc in items.get('malicious_processes') or []:
+        emit_artifact('process', proc.get('name', 'unknown'), pid=proc.get('pid'), malicious=True)
+    for proc in items.get('tainted_processes') or []:
+        emit_artifact('process', proc.get('name', 'unknown'), pid=proc.get('pid'), hijack_time=proc.get('hijack_time'))
+
+
 def ClouseauRun(llm: BaseChatModel, configs: dict) -> str:
- 
+
+    # run_id ties this run's events together for the demo UI (see observability.py).
+    # Set on `configs` (not just a local var) so it also reaches evaluate_report()
+    # in app.py, which emits the final 'metrics' event onto the same stream.
+    configs['run_id'] = configs.get('run_id') or observability.new_run_id()
+    host_label = configs.get('host_label') or configs.get('test_name')
+    observability.start_run(configs['run_id'], poi=configs.get('clue', ''), hosts=[host_label] if host_label else None)
+
     graph_cfg = {'recursion_limit': 125}
     chief_prompt = HumanMessage(content=get_prompt_chief_inspector(
-        configs['environment'], 
-        configs['max_investigations'], 
+        configs['environment'],
+        configs['max_investigations'],
         configs['clue']
         )
     )
@@ -175,8 +263,19 @@ def ClouseauRun(llm: BaseChatModel, configs: dict) -> str:
     agent = Clouseau(llm, configs)
     log_run_start(configs)
     response = agent.graph.invoke({"messages": chief_prompt}, config=graph_cfg)
-    final_summary = response["messages"][-1].content
+    messages = response["messages"]
+    final_summary = messages[-1].content
+    # messages[-2] is the chief's narrative report, before call_eval appended its
+    # own JSON-only response as the new last message (see call_eval above).
+    narrative = messages[-2].content if len(messages) >= 2 else final_summary
+    if isinstance(narrative, str):
+        observability.emit(
+            configs['run_id'], 'final_report', role='chief', agent_id='chief-1', host=host_label,
+            narration="Chief Inspector compiles the final report.", detail={'report': narrative},
+        )
+    _emit_artifacts_from_eval(configs['run_id'], host_label, final_summary)
     log_run_end(configs, final_summary)
+    observability.end_run(configs['run_id'])
     return final_summary
     
 

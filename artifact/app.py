@@ -3,6 +3,7 @@ from chief_inspector import investigate_atlas, investigate_optc
 from ablation_agent import ablation_atlas, ablation_optc
 from evaluation import evaluate_report
 from llm_factory import create_llm_from_env, LLMConfigError
+import observability
 from datetime import datetime
 from typing import List, Dict
 import concurrent.futures
@@ -119,6 +120,9 @@ def run_scenarios(scns: List, llm: ChatOpenAI, configs: Dict, ablation: bool, da
             poi_cfg['clue'] = p[0]
             poi_cfg['test_name'] = f"{i['name']}_{p[1]}"
             poi_cfg['is_darpa'] = darpa
+            # Stable run_id (= test_name) lets the demo UI (see ../demo/) correlate
+            # this run's live event stream with its evaluation metrics below.
+            poi_cfg['run_id'] = poi_cfg['test_name']
 
             # --- Resume: skip tests already in the output CSV ---
             if resume and already_completed(csv_file, poi_cfg['test_name']):
@@ -172,8 +176,22 @@ def run_scenarios(scns: List, llm: ChatOpenAI, configs: Dict, ablation: bool, da
             # Evaluate and save (empty string on timeout/error → all-zero metrics)
             er = evaluate_report(poi_cfg, results if results is not None else "")
             df = er.get_pd()
-            df["duration_seconds"] = time.time() - t_start
+            duration_seconds = time.time() - t_start
+            df["duration_seconds"] = duration_seconds
             save_to_csv(df, csv_file)
+
+            precision = er.tp / (er.tp + er.fp) if (er.tp + er.fp) else 0.0
+            recall = er.tp / (er.tp + er.fn) if (er.tp + er.fn) else 0.0
+            f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+            observability.emit(
+                poi_cfg.get('run_id'), 'metrics', role='system', agent_id='system',
+                narration=f"Scored against ground truth: precision {precision:.2f}, recall {recall:.2f}, F1 {f1:.3f}.",
+                detail={
+                    'precision': round(precision, 3), 'recall': round(recall, 3), 'f1': round(f1, 3),
+                    'duration_seconds': round(duration_seconds, 1),
+                    'tokens_used': int(er.total_tokens),
+                },
+            )
 
             status = "TIMEOUT" if timed_out else ("✓" if results is not None else "✗ ERROR")
             print(f"[{ts}] {status} {poi_cfg['test_name']} — {duration_min:.1f} min — saved to CSV")

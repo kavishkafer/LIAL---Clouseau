@@ -7,6 +7,7 @@ from langchain_core.tools import InjectedToolArg, tool
 from langchain_core.language_models import BaseChatModel
 from typing import Annotated
 import constants
+import observability
 
 class ds_ctx(dict):
     def __init__(self, llm: BaseChatModel, configs: dict = {}):
@@ -247,13 +248,28 @@ class InvestigateAgent:
 
 
 def investigate_attack(llm: BaseChatModel, configs: dict, lead: str) -> str:
-    
+
+    run_id = configs.get('run_id')
+    host_label = configs.get('host_label') or configs.get('test_name')
+    agent_id = f"investigator-{host_label}" if host_label else "investigator-1"
+    observability.emit(
+        run_id, 'investigator_started', role='investigator', agent_id=agent_id, host=host_label,
+        narration=f"Investigator begins work{' on host ' + str(host_label) if host_label else ''}.",
+    )
+
     graph_cfg = {'recursion_limit': 125}
     lead_msg = HumanMessage(content=get_prompt_investigation_agent(
-        environment=configs['environment'], 
-        max_questions=configs['max_questions'], 
+        environment=configs['environment'],
+        max_questions=configs['max_questions'],
         lead=lead))
 
     attack = InvestigateAgent(llm, configs)
     response = attack.graph.invoke({"messages": lead_msg}, config=graph_cfg)
-    return response["messages"][-1].content
+    summary = response["messages"][-1].content
+    if isinstance(summary, str):
+        preview = summary if len(summary) < 400 else summary[:400] + '…'
+        observability.emit(
+            run_id, 'investigator_summary', role='investigator', agent_id=agent_id, host=host_label,
+            narration=preview, detail={'summary': summary},
+        )
+    return summary

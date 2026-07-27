@@ -1,0 +1,259 @@
+{
+  "recording_id": "sample_apt_campaign",
+  "title": "Phishing to Domain Compromise — Two-Host Lateral Movement",
+  "description": "Hand-authored reference recording for Clouseau Live. Depicts a realistic phishing-borne intrusion pivoting from a finance workstation to a domain controller. All IPs use IANA-reserved documentation ranges (TEST-NET-2/3); all hostnames, files, and domains are fictional.",
+  "poi": { "type": "domain", "value": "secure-invoice-portal.com" },
+  "hosts": ["WIN-FINANCE-07", "WIN-DC-01"],
+  "stages": ["Initial Access", "Execution", "Command & Control", "Discovery", "Lateral Movement", "Persistence", "Collection", "Exfiltration"],
+  "ground_truth": { "precision": 0.97, "recall": 0.94, "f1": 0.955 },
+  "events": [
+    { "seq": 1, "delayMs": 400, "type": "run_started", "role": "system", "agent_id": "system", "host": null, "stage": null,
+      "narration": "Investigation started. Point of interest: domain secure-invoice-portal.com, reported by a finance employee.",
+      "detail": { "poi": "secure-invoice-portal.com", "environment": "ATLAS-style single/multi-host, local LLM inference" } },
+
+    { "seq": 2, "delayMs": 1400, "type": "chief_thinking", "role": "chief", "agent_id": "chief-1", "host": null, "stage": null,
+      "narration": "The Chief Inspector is reviewing the point of interest and planning the first lead.",
+      "detail": {} },
+
+    { "seq": 3, "delayMs": 1200, "type": "lead_dispatched", "role": "chief", "agent_id": "chief-1", "host": "WIN-FINANCE-07", "stage": "Initial Access",
+      "narration": "Chief Inspector dispatches an Investigator: “Check who resolved or visited secure-invoice-portal.com, and what happened afterward.”",
+      "detail": { "lead": "Investigate the domain secure-invoice-portal.com. Find any processes that resolved or visited this address, and any files downloaded around that time." },
+      "graphOp": { "op": "addNode", "node": { "id": "h1", "label": "WIN-FINANCE-07", "kind": "host", "x": 8, "y": 50 } } },
+
+    { "seq": 4, "delayMs": 900, "type": "investigator_started", "role": "investigator", "agent_id": "investigator-1", "host": "WIN-FINANCE-07", "stage": "Initial Access",
+      "narration": "Investigator 1 begins work on host WIN-FINANCE-07.",
+      "detail": {} },
+
+    { "seq": 5, "delayMs": 900, "type": "qa_question", "role": "qa", "agent_id": "qa-dns-1", "host": "WIN-FINANCE-07", "stage": "Initial Access",
+      "narration": "DNS specialist agent is asked to resolve the domain to its network address.",
+      "detail": { "question": "What IP address does secure-invoice-portal.com resolve to?" } },
+
+    { "seq": 6, "delayMs": 1100, "type": "sql_query", "role": "qa", "agent_id": "qa-dns-1", "host": "WIN-FINANCE-07", "stage": "Initial Access",
+      "narration": "Querying the DNS log table for this domain.",
+      "detail": { "sql": "SELECT query, answers, ts FROM dns_logs WHERE query LIKE '%secure-invoice-portal.com%';" } },
+
+    { "seq": 7, "delayMs": 1000, "type": "sql_result", "role": "qa", "agent_id": "qa-dns-1", "host": "WIN-FINANCE-07", "stage": "Initial Access",
+      "narration": "Result: the domain resolves to 203.0.113.47 — an address not previously seen on this network.",
+      "detail": { "rows": [["secure-invoice-portal.com", "203.0.113.47", "09:13:58"]] },
+      "graphOp": { "op": "addNode", "node": { "id": "domain1", "label": "secure-invoice-portal.com", "kind": "domain", "x": 24, "y": 18 } } },
+
+    { "seq": 8, "delayMs": 1300, "type": "artifact_found", "role": "qa", "agent_id": "qa-dns-1", "host": "WIN-FINANCE-07", "stage": "Initial Access",
+      "narration": "Artifact recorded: suspicious domain secure-invoice-portal.com → 203.0.113.47.",
+      "detail": { "artifact_type": "domain", "value": "secure-invoice-portal.com" },
+      "graphOp": { "op": "addNode", "node": { "id": "ip1", "label": "203.0.113.47", "kind": "ip", "x": 24, "y": 82, "status": "critical" } } },
+
+    { "seq": 9, "delayMs": 1000, "type": "qa_question", "role": "qa", "agent_id": "qa-browser-1", "host": "WIN-FINANCE-07", "stage": "Initial Access",
+      "narration": "Browser specialist agent checks activity around this domain.",
+      "detail": { "question": "Which process visited secure-invoice-portal.com, and what was downloaded?" } },
+
+    { "seq": 10, "delayMs": 1200, "type": "sql_query", "role": "qa", "agent_id": "qa-browser-1", "host": "WIN-FINANCE-07", "stage": "Initial Access",
+      "narration": "Querying browser history for this domain.",
+      "detail": { "sql": "SELECT pid, process_name, url, ts FROM browser_logs WHERE url LIKE '%secure-invoice-portal.com%';" } },
+
+    { "seq": 11, "delayMs": 1100, "type": "sql_result", "role": "qa", "agent_id": "qa-browser-1", "host": "WIN-FINANCE-07", "stage": "Initial Access",
+      "narration": "firefox.exe (PID 4521) visited the site at 09:14:02 and downloaded “Invoice_July.docm”.",
+      "detail": { "rows": [[4521, "firefox.exe", "secure-invoice-portal.com/invoice", "09:14:02"]] } },
+
+    { "seq": 12, "delayMs": 1300, "type": "artifact_found", "role": "qa", "agent_id": "qa-browser-1", "host": "WIN-FINANCE-07", "stage": "Initial Access",
+      "narration": "Artifact recorded: macro-enabled file Invoice_July.docm delivered via drive-by download.",
+      "detail": { "artifact_type": "file", "value": "Invoice_July.docm" },
+      "graphOp": [
+        { "op": "addNode", "node": { "id": "file1", "label": "Invoice_July.docm", "kind": "file", "x": 40, "y": 18, "status": "critical" } },
+        { "op": "addEdge", "edge": { "id": "e1", "from": "h1", "to": "domain1", "label": "visited" } },
+        { "op": "addEdge", "edge": { "id": "e2", "from": "domain1", "to": "ip1", "label": "resolves to" } },
+        { "op": "addEdge", "edge": { "id": "e3", "from": "domain1", "to": "file1", "label": "delivered" } }
+      ] },
+
+    { "seq": 13, "delayMs": 1300, "type": "qa_question", "role": "qa", "agent_id": "qa-audit-1", "host": "WIN-FINANCE-07", "stage": "Execution",
+      "narration": "Process-audit specialist agent builds the execution tree around the download.",
+      "detail": { "question": "What process opened Invoice_July.docm, and what did it spawn?" } },
+
+    { "seq": 14, "delayMs": 1200, "type": "sql_query", "role": "qa", "agent_id": "qa-audit-1", "host": "WIN-FINANCE-07", "stage": "Execution",
+      "narration": "Querying the process table for children of the office process around 09:15.",
+      "detail": { "sql": "SELECT pid, ppid, process_name, cmd_line, ts FROM processes_logs WHERE process_name IN ('WINWORD.EXE','powershell.exe') AND ts BETWEEN '09:14:00' AND '09:16:00';" } },
+
+    { "seq": 15, "delayMs": 1300, "type": "sql_result", "role": "qa", "agent_id": "qa-audit-1", "host": "WIN-FINANCE-07", "stage": "Execution",
+      "narration": "WINWORD.EXE (PID 4602) opened the document, then spawned an obfuscated PowerShell command one second later.",
+      "detail": { "rows": [
+        [4602, 4521, "WINWORD.EXE", "\"WINWORD.EXE\" Invoice_July.docm", "09:14:59"],
+        [4718, 4602, "powershell.exe", "powershell -nop -w hidden -enc SQBFAFgAI...", "09:15:03"]
+      ] } },
+
+    { "seq": 16, "delayMs": 1400, "type": "artifact_found", "role": "qa", "agent_id": "qa-audit-1", "host": "WIN-FINANCE-07", "stage": "Execution",
+      "narration": "Artifact recorded: WINWORD.EXE was hijacked to launch a hidden PowerShell downloader (PID 4718).",
+      "detail": { "artifact_type": "process", "value": "powershell.exe", "pid": 4718, "malicious": true, "parent": "WINWORD.EXE", "hijack_time": "09:14:59" },
+      "graphOp": [
+        { "op": "addNode", "node": { "id": "proc_word", "label": "WINWORD.EXE\nPID 4602", "kind": "process", "x": 40, "y": 50, "status": "serious" } },
+        { "op": "addNode", "node": { "id": "proc_ps", "label": "powershell.exe\nPID 4718", "kind": "process", "x": 52, "y": 50, "status": "critical" } },
+        { "op": "addEdge", "edge": { "id": "e4", "from": "file1", "to": "proc_word", "label": "opened by" } },
+        { "op": "addEdge", "edge": { "id": "e5", "from": "proc_word", "to": "proc_ps", "label": "spawned (hijacked)" } }
+      ] },
+
+    { "seq": 17, "delayMs": 1300, "type": "sql_query", "role": "qa", "agent_id": "qa-audit-1", "host": "WIN-FINANCE-07", "stage": "Command & Control",
+      "narration": "Tracing what the PowerShell downloader executed next.",
+      "detail": { "sql": "SELECT pid, ppid, process_name, cmd_line, ts FROM processes_logs WHERE ppid = 4718;" } },
+
+    { "seq": 18, "delayMs": 1200, "type": "sql_result", "role": "qa", "agent_id": "qa-audit-1", "host": "WIN-FINANCE-07", "stage": "Command & Control",
+      "narration": "PowerShell spawned rundll32.exe (PID 4790), which is not a normal child for this process.",
+      "detail": { "rows": [[4790, 4718, "rundll32.exe", "rundll32.exe C:\\Users\\Public\\upd.dll,Start", "09:15:41"]] } },
+
+    { "seq": 19, "delayMs": 1200, "type": "qa_question", "role": "qa", "agent_id": "qa-audit-1", "host": "WIN-FINANCE-07", "stage": "Command & Control",
+      "narration": "Checking network connections made by this process.",
+      "detail": { "question": "What network connections did rundll32.exe (PID 4790) make?" } },
+
+    { "seq": 20, "delayMs": 1300, "type": "sql_query", "role": "qa", "agent_id": "qa-audit-1", "host": "WIN-FINANCE-07", "stage": "Command & Control",
+      "narration": "Querying flow logs for this PID.",
+      "detail": { "sql": "SELECT pid, process_name, ip, port, ts FROM flow_logs WHERE pid = 4790 ORDER BY ts;" } },
+
+    { "seq": 21, "delayMs": 1300, "type": "sql_result", "role": "qa", "agent_id": "qa-audit-1", "host": "WIN-FINANCE-07", "stage": "Command & Control",
+      "narration": "Confirmed beacon: rundll32.exe connects to 203.0.113.47:443 every ~60 seconds starting at 09:16:02.",
+      "detail": { "rows": [[4790, "rundll32.exe", "203.0.113.47", 443, "09:16:02"], [4790, "rundll32.exe", "203.0.113.47", 443, "09:17:03"]] } },
+
+    { "seq": 22, "delayMs": 1400, "type": "artifact_found", "role": "qa", "agent_id": "qa-audit-1", "host": "WIN-FINANCE-07", "stage": "Command & Control",
+      "narration": "Artifact recorded: rundll32.exe (PID 4790) is an active command-and-control beacon.",
+      "detail": { "artifact_type": "process", "value": "rundll32.exe", "pid": 4790, "malicious": true },
+      "graphOp": [
+        { "op": "addNode", "node": { "id": "proc_rundll", "label": "rundll32.exe\nPID 4790", "kind": "process", "x": 64, "y": 50, "status": "critical" } },
+        { "op": "addEdge", "edge": { "id": "e6", "from": "proc_ps", "to": "proc_rundll", "label": "spawned" } },
+        { "op": "addEdge", "edge": { "id": "e7", "from": "proc_rundll", "to": "ip1", "label": "beacons to :443" } }
+      ] },
+
+    { "seq": 23, "delayMs": 1500, "type": "investigator_summary", "role": "investigator", "agent_id": "investigator-1", "host": "WIN-FINANCE-07", "stage": "Command & Control",
+      "narration": "Investigator 1 reports back: confirmed phishing-based initial access via a macro document, with an active PowerShell-launched C2 beacon.",
+      "detail": { "summary": "Initial access via secure-invoice-portal.com → Invoice_July.docm. WINWORD.EXE hijacked to spawn powershell.exe (PID 4718), which spawned rundll32.exe (PID 4790), beaconing to 203.0.113.47:443." } },
+
+    { "seq": 24, "delayMs": 1600, "type": "chief_reflection", "role": "chief", "agent_id": "chief-1", "host": "WIN-FINANCE-07", "stage": "Discovery",
+      "narration": "The Chief Inspector notices the beacon process also made an internal SMB connection — a possible pivot to another host.",
+      "detail": {} },
+
+    { "seq": 25, "delayMs": 1400, "type": "sql_query", "role": "qa", "agent_id": "qa-audit-1", "host": "WIN-FINANCE-07", "stage": "Discovery",
+      "narration": "Checking for internal (non-internet) connections from the same process.",
+      "detail": { "sql": "SELECT pid, process_name, ip, port, ts FROM flow_logs WHERE pid = 4790 AND ip LIKE '10.%';" } },
+
+    { "seq": 26, "delayMs": 1300, "type": "sql_result", "role": "qa", "agent_id": "qa-audit-1", "host": "WIN-FINANCE-07", "stage": "Discovery",
+      "narration": "Found an SMB connection (port 445) from this host to the domain controller at 09:42:17.",
+      "detail": { "rows": [[4790, "rundll32.exe", "10.10.20.5", 445, "09:42:17"]] } },
+
+    { "seq": 27, "delayMs": 1600, "type": "pivot_found", "role": "chief", "agent_id": "chief-1", "host": "WIN-FINANCE-07", "stage": "Lateral Movement",
+      "narration": "PIVOT CONFIRMED: WIN-FINANCE-07 → WIN-DC-01 over SMB (port 445), driven by the C2 process. The Chief Inspector opens a second investigation on the domain controller.",
+      "detail": { "src_host": "WIN-FINANCE-07", "dst_host": "WIN-DC-01", "ip": "10.10.20.5", "port": 445, "ts": "09:42:17", "process": "rundll32.exe", "pid": 4790 },
+      "graphOp": [
+        { "op": "addNode", "node": { "id": "h2", "label": "WIN-DC-01", "kind": "host", "x": 80, "y": 50 } },
+        { "op": "addEdge", "edge": { "id": "epivot", "from": "proc_rundll", "to": "h2", "label": "lateral movement (SMB 445)", "pivot": true } }
+      ] },
+
+    { "seq": 28, "delayMs": 1200, "type": "lead_dispatched", "role": "chief", "agent_id": "chief-1", "host": "WIN-DC-01", "stage": "Lateral Movement",
+      "narration": "Chief Inspector dispatches a second Investigator to WIN-DC-01 with the pivot details.",
+      "detail": { "lead": "An SMB connection arrived from 10.10.20.7 (WIN-FINANCE-07) at 09:42:17 to this domain controller. Investigate what happened on this host afterward." } },
+
+    { "seq": 29, "delayMs": 1000, "type": "investigator_started", "role": "investigator", "agent_id": "investigator-2", "host": "WIN-DC-01", "stage": "Lateral Movement",
+      "narration": "Investigator 2 begins work on host WIN-DC-01.",
+      "detail": {} },
+
+    { "seq": 30, "delayMs": 1200, "type": "qa_question", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Discovery",
+      "narration": "Process-audit specialist checks what ran right after the SMB connection landed.",
+      "detail": { "question": "What process activity followed the connection from 10.10.20.7 at 09:42?" } },
+
+    { "seq": 31, "delayMs": 1300, "type": "sql_query", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Discovery",
+      "narration": "Querying the process table for the window after 09:42.",
+      "detail": { "sql": "SELECT pid, ppid, process_name, cmd_line, ts FROM processes_logs WHERE ts BETWEEN '09:42:00' AND '09:45:00' ORDER BY ts;" } },
+
+    { "seq": 32, "delayMs": 1300, "type": "sql_result", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Discovery",
+      "narration": "svchost.exe spawned cmd.exe (PID 2210), which ran domain enumeration commands.",
+      "detail": { "rows": [[2210, 1044, "cmd.exe", "cmd.exe /c whoami /all && net group \"Domain Admins\" /domain", "09:43:05"]] } },
+
+    { "seq": 33, "delayMs": 1400, "type": "artifact_found", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Discovery",
+      "narration": "Artifact recorded: attacker enumerated Domain Admins from cmd.exe (PID 2210) immediately after the pivot.",
+      "detail": { "artifact_type": "process", "value": "cmd.exe", "pid": 2210, "malicious": true },
+      "graphOp": { "op": "addNode", "node": { "id": "proc_cmd", "label": "cmd.exe\nPID 2210", "kind": "process", "x": 88, "y": 22, "status": "critical" } } },
+
+    { "seq": 34, "delayMs": 1400, "type": "sql_query", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Persistence",
+      "narration": "Checking for any new services created around this time (a common persistence technique).",
+      "detail": { "sql": "SELECT pid, ppid, process_name, cmd_line, ts FROM processes_logs WHERE cmd_line LIKE '%sc.exe create%' OR cmd_line LIKE '%New-Service%';" } },
+
+    { "seq": 35, "delayMs": 1300, "type": "sql_result", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Persistence",
+      "narration": "A new service, “WinUpdateSvc”, was installed at 09:47:30 for persistence.",
+      "detail": { "rows": [[2255, 2210, "services.exe", "sc.exe create WinUpdateSvc binPath= C:\\Windows\\Temp\\svchelper.exe", "09:47:30"]] } },
+
+    { "seq": 36, "delayMs": 1400, "type": "artifact_found", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Persistence",
+      "narration": "Artifact recorded: malicious persistence service “WinUpdateSvc” (PID 2255).",
+      "detail": { "artifact_type": "process", "value": "WinUpdateSvc", "pid": 2255, "malicious": true },
+      "graphOp": [
+        { "op": "addNode", "node": { "id": "proc_svc", "label": "WinUpdateSvc\nPID 2255", "kind": "process", "x": 88, "y": 50, "status": "critical" } },
+        { "op": "addEdge", "edge": { "id": "e8", "from": "h2", "to": "proc_cmd", "label": "executed" } },
+        { "op": "addEdge", "edge": { "id": "e9", "from": "proc_cmd", "to": "proc_svc", "label": "installed" } }
+      ] },
+
+    { "seq": 37, "delayMs": 1400, "type": "sql_query", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Collection",
+      "narration": "Checking what the persistence service did once running.",
+      "detail": { "sql": "SELECT pid, ppid, process_name, cmd_line, ts FROM processes_logs WHERE ppid = 2255;" } },
+
+    { "seq": 38, "delayMs": 1300, "type": "sql_result", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Collection",
+      "narration": "The service spawned 7z.exe, which compressed a file share into a single archive.",
+      "detail": { "rows": [[2301, 2255, "7z.exe", "7z.exe a -tzip HR_Records_2026.zip \\\\WIN-DC-01\\HR_Share\\*", "10:05:12"]] } },
+
+    { "seq": 39, "delayMs": 1400, "type": "artifact_found", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Collection",
+      "narration": "Artifact recorded: sensitive archive HR_Records_2026.zip staged for exfiltration.",
+      "detail": { "artifact_type": "file", "value": "HR_Records_2026.zip" },
+      "graphOp": [
+        { "op": "addNode", "node": { "id": "proc_7z", "label": "7z.exe\nPID 2301", "kind": "process", "x": 88, "y": 78, "status": "serious" } },
+        { "op": "addNode", "node": { "id": "file2", "label": "HR_Records_2026.zip", "kind": "file", "x": 96, "y": 78, "status": "critical" } },
+        { "op": "addEdge", "edge": { "id": "e10", "from": "proc_svc", "to": "proc_7z", "label": "spawned" } },
+        { "op": "addEdge", "edge": { "id": "e11", "from": "proc_7z", "to": "file2", "label": "compressed" } }
+      ] },
+
+    { "seq": 40, "delayMs": 1400, "type": "sql_query", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Exfiltration",
+      "narration": "Checking whether this archive left the network.",
+      "detail": { "sql": "SELECT pid, process_name, ip, port, SUM(size) AS bytes, ts FROM flow_logs WHERE pid = 2301 GROUP BY pid, ip, port;" } },
+
+    { "seq": 41, "delayMs": 1400, "type": "sql_result", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Exfiltration",
+      "narration": "340 MB transferred from 7z.exe to external address 198.51.100.23:8443 at 10:12:44.",
+      "detail": { "rows": [[2301, "7z.exe", "198.51.100.23", 8443, 356515840, "10:12:44"]] } },
+
+    { "seq": 42, "delayMs": 1500, "type": "artifact_found", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Exfiltration",
+      "narration": "Artifact recorded: 340 MB of HR data exfiltrated to 198.51.100.23.",
+      "detail": { "artifact_type": "address", "value": "198.51.100.23", "bytes": 356515840 },
+      "graphOp": [
+        { "op": "addNode", "node": { "id": "ip2", "label": "198.51.100.23", "kind": "ip", "x": 100, "y": 64, "status": "critical" } },
+        { "op": "addEdge", "edge": { "id": "e12", "from": "proc_7z", "to": "ip2", "label": "exfiltrated 340MB" } }
+      ] },
+
+    { "seq": 43, "delayMs": 1600, "type": "investigator_summary", "role": "investigator", "agent_id": "investigator-2", "host": "WIN-DC-01", "stage": "Exfiltration",
+      "narration": "Investigator 2 reports back: attacker pivoted to the domain controller, enumerated Domain Admins, installed a persistence service, and exfiltrated HR data.",
+      "detail": { "summary": "Lateral movement via SMB from WIN-FINANCE-07. cmd.exe (PID 2210) enumerated domain admins, WinUpdateSvc (PID 2255) installed for persistence, 7z.exe (PID 2301) staged and exfiltrated HR_Records_2026.zip (340MB) to 198.51.100.23:8443." } },
+
+    { "seq": 44, "delayMs": 1800, "type": "chief_reflection", "role": "chief", "agent_id": "chief-1", "host": null, "stage": null,
+      "narration": "The Chief Inspector reviews both investigation reports and compiles the full two-host attack narrative.",
+      "detail": {} },
+
+    { "seq": 45, "delayMs": 1800, "type": "final_report", "role": "chief", "agent_id": "chief-1", "host": null, "stage": null,
+      "narration": "Final report: a phishing email led to macro-based execution on WIN-FINANCE-07, a C2 beacon, lateral movement over SMB to WIN-DC-01, and exfiltration of HR records — fully reconstructed across two hosts.",
+      "detail": {
+        "addresses": ["203.0.113.47", "198.51.100.23"],
+        "domains": ["secure-invoice-portal.com"],
+        "files": ["Invoice_July.docm", "HR_Records_2026.zip"],
+        "malicious_processes": [
+          {"pid": 4718, "name": "powershell.exe"},
+          {"pid": 4790, "name": "rundll32.exe"},
+          {"pid": 2210, "name": "cmd.exe"},
+          {"pid": 2255, "name": "WinUpdateSvc"},
+          {"pid": 2301, "name": "7z.exe"}
+        ],
+        "tainted_processes": [
+          {"pid": 4602, "name": "WINWORD.EXE", "hijack_time": "09:14:59"}
+        ]
+      } },
+
+    { "seq": 46, "delayMs": 1200, "type": "eval_started", "role": "system", "agent_id": "system", "host": null, "stage": null,
+      "narration": "Evaluating the reconstructed report against ground truth.",
+      "detail": {} },
+
+    { "seq": 47, "delayMs": 1600, "type": "metrics", "role": "system", "agent_id": "system", "host": null, "stage": null,
+      "narration": "Scored against ground truth: precision 0.97, recall 0.94, F1 0.955 across both hosts.",
+      "detail": { "precision": 0.97, "recall": 0.94, "f1": 0.955, "duration_seconds": 612, "sql_queries": 14, "investigations": 2, "tokens_used": 48210, "tokens_saved_pct": 34 } },
+
+    { "seq": 48, "delayMs": 600, "type": "run_complete", "role": "system", "agent_id": "system", "host": null, "stage": null,
+      "narration": "Investigation complete.",
+      "detail": {} }
+  ]
+}

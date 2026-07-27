@@ -5,8 +5,16 @@ from langchain_core.tools import InjectedToolArg, tool
 from langchain_core.language_models import BaseChatModel
 from typing import Annotated
 from datetime import datetime
+import contextvars
 import sqlite3
 import prompts
+import observability
+
+# run_sql_query() is invoked deep inside SQLAgent's tool-call machinery with
+# only `db_name` injected — it has no direct line to the run/host/agent that
+# issued the question. run_agent() stamps this context var before invoking the
+# graph so the sql_query/sql_result hooks below know who to attribute to.
+_qa_context: "contextvars.ContextVar[dict]" = contextvars.ContextVar('qa_context', default={})
 
 # P1: Column-aware cell truncation — prevents browser headers/cookies/response
 # bodies from flooding the context window (~600 tokens per row on http_logs).
@@ -170,14 +178,30 @@ def run_sql_query(db_name: Annotated[str, InjectedToolArg], query: str) -> str:
 
     #print(f"Received Query: {query}")
 
-    with sqlite3.connect(db_name) as cnn: 
+    ctx = _qa_context.get()
+    observability.emit(
+        ctx.get('run_id'), 'sql_query', role='qa', agent_id=ctx.get('agent_id', 'qa-agent'),
+        host=ctx.get('host'), narration=f"Querying {ctx.get('table', 'the database')}.",
+        detail={'sql': query},
+    )
+
+    with sqlite3.connect(db_name) as cnn:
         cursor = cnn.cursor()
         cursor.execute(query)
         rows = cursor.fetchall()
         if len(rows) == 0:
+            observability.emit(
+                ctx.get('run_id'), 'sql_result', role='qa', agent_id=ctx.get('agent_id', 'qa-agent'),
+                host=ctx.get('host'), narration="No results found.", detail={'rows': []},
+            )
             return "No results found."
-        
+
         if len(rows) > 30:
+            observability.emit(
+                ctx.get('run_id'), 'sql_result', role='qa', agent_id=ctx.get('agent_id', 'qa-agent'),
+                host=ctx.get('host'), narration=f"Query returned {len(rows)} rows — too many, refining.",
+                detail={'row_count': len(rows), 'truncated': True},
+            )
             return (
                 f"Query returned too many results ({len(rows)} records)."
                 " Please refine the query, consider using `GROUP BY`, `DISTINCT` or elminating some of the columns you request."
@@ -190,6 +214,11 @@ def run_sql_query(db_name: Annotated[str, InjectedToolArg], query: str) -> str:
         for row in rows:
             formatted_row = [format_cell(col_names[i], row[i]) for i in range(len(row))]
             formatted_rows.append('\t'.join(formatted_row))
+        observability.emit(
+            ctx.get('run_id'), 'sql_result', role='qa', agent_id=ctx.get('agent_id', 'qa-agent'),
+            host=ctx.get('host'), narration=f"Result: {len(rows)} row{'s' if len(rows) != 1 else ''} returned.",
+            detail={'rows': [list(map(str, r)) for r in rows[:10]], 'row_count': len(rows)},
+        )
         return '\n'.join(formatted_rows)
 
 @tool(parse_docstring=True)
@@ -478,11 +507,22 @@ def run_agent(llm: BaseChatModel, db_name: str, table_name: str, qa_examples: di
         examples += f"{k}\n{v}\n\n"
     examples = examples.strip()
 
+    run_id = configs.get('run_id')
+    host_label = configs.get('host_label') or configs.get('test_name')
+    agent_id = f"qa-{table_name}"
+    observability.emit(
+        run_id, 'qa_question', role='qa', agent_id=agent_id, host=host_label,
+        narration=f"{table_name} specialist asked: {question}", detail={'question': question, 'table': table_name},
+    )
+    token = _qa_context.set({'run_id': run_id, 'agent_id': agent_id, 'host': host_label, 'table': table_name})
+
     graph_cfg = {'recursion_limit': 125}
+    if observability.is_enabled():
+        graph_cfg['callbacks'] = [observability.ThinkingPulseCallback(run_id, 'qa', agent_id, host_label)]
     messages = [HumanMessage(content=get_prompt_sqlexpert(
         get_table_schema(db_name, table_name),
-        examples, 
-        configs["max_queries"], 
+        examples,
+        configs["max_queries"],
         question))]
     abot = SQLAgent(llm, db_name=db_name, configs=configs)
     final_result = ''
@@ -492,7 +532,9 @@ def run_agent(llm: BaseChatModel, db_name: str, table_name: str, qa_examples: di
         final_result = f"{result['messages'][-1].content}"
     except Exception as e:
         final_result = f"We had a problem understanding the question. Please try again. \n{e}"
-    
+    finally:
+        _qa_context.reset(token)
+
     return final_result
 
 def atlas_browser_agent(llm: BaseChatModel, db_name: str, question: str, configs: dict):
