@@ -224,6 +224,22 @@
   #graphview.active, #aptview.active { display: block; }
   #graphview .panel-body, #aptview .panel-body { position: relative; }
 
+  .expand-btn {
+    display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+    border-radius: 6px; border: 1px solid var(--border-2); background: transparent; color: var(--ink-3);
+    cursor: pointer; font-size: 14px; line-height: 1;
+  }
+  .expand-btn:hover { background: var(--surface-2); color: var(--ink-1); }
+  #expand-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 90; opacity: 0;
+    pointer-events: none; transition: opacity .2s;
+  }
+  #expand-backdrop.show { opacity: 1; pointer-events: auto; }
+  #hero.expanded {
+    position: fixed; inset: 28px; z-index: 100; border-radius: 14px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.5); border: 1px solid var(--border-2);
+  }
+
   svg#recon-svg { width: 100%; height: 100%; display: block; }
   .g-node rect, .g-node circle, .g-node polygon { stroke-width: 1.6; transition: opacity .5s; }
   .g-node text { font-family: var(--mono); fill: var(--ink-1); }
@@ -422,6 +438,7 @@
         <button id="tab-graph" class="active">Reconstruction graph</button>
         <button id="tab-apt">APT kill-chain</button>
       </div>
+      <button class="expand-btn" id="btn-expand" title="Expand">⤢</button>
     </div>
     <div class="panel-body" style="position:relative;">
       <div id="graphview" class="active">
@@ -477,6 +494,8 @@
     </div>
   </section>
 </main>
+
+<div id="expand-backdrop"></div>
 
 <script>
 "use strict";
@@ -667,6 +686,20 @@ const tabGraph = document.getElementById('tab-graph'), tabApt = document.getElem
 const viewGraph = document.getElementById('graphview'), viewApt = document.getElementById('aptview');
 tabGraph.addEventListener('click', () => { tabGraph.classList.add('active'); tabApt.classList.remove('active'); viewGraph.classList.add('active'); viewApt.classList.remove('active'); });
 tabApt.addEventListener('click', () => { tabApt.classList.add('active'); tabGraph.classList.remove('active'); viewApt.classList.add('active'); viewGraph.classList.remove('active'); });
+
+/* ---------------- expand / focus the hero panel ---------------- */
+const heroPanel = document.getElementById('hero');
+const expandBtn = document.getElementById('btn-expand');
+const expandBackdrop = document.getElementById('expand-backdrop');
+function setExpanded(on) {
+  heroPanel.classList.toggle('expanded', on);
+  expandBackdrop.classList.toggle('show', on);
+  expandBtn.textContent = on ? '⤡' : '⤢';
+  expandBtn.title = on ? 'Collapse' : 'Expand';
+}
+expandBtn.addEventListener('click', () => setExpanded(!heroPanel.classList.contains('expanded')));
+expandBackdrop.addEventListener('click', () => setExpanded(false));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setExpanded(false); });
 
 /* ---------------- metrics footer ---------------- */
 let sqlCount = 0, invSet = new Set();
