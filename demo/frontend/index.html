@@ -230,14 +230,25 @@
     cursor: pointer; font-size: 14px; line-height: 1;
   }
   .expand-btn:hover { background: var(--surface-2); color: var(--ink-1); }
-  #expand-backdrop {
-    position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 90; opacity: 0;
-    pointer-events: none; transition: opacity .2s;
+  /* Expand by re-flowing the grid itself (hide siblings, hero spans everything)
+     rather than position:fixed — some embedding contexts apply their own CSS
+     transform to the page for scaling, which changes the containing block for
+     fixed-position descendants and silently breaks them. Reflowing the grid
+     has no such dependency. */
+  main.console-body.hero-expanded #orgchart,
+  main.console-body.hero-expanded #narration,
+  main.console-body.hero-expanded #evidence-toggle-row,
+  main.console-body.hero-expanded #evidence,
+  main.console-body.hero-expanded #artifacts,
+  main.console-body.hero-expanded #metrics {
+    display: none;
   }
-  #expand-backdrop.show { opacity: 1; pointer-events: auto; }
-  #hero.expanded {
-    position: fixed; inset: 28px; z-index: 100; border-radius: 14px;
-    box-shadow: 0 30px 80px rgba(0,0,0,.5); border: 1px solid var(--border-2);
+  main.console-body.hero-expanded {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+  }
+  main.console-body.hero-expanded #hero {
+    grid-column: 1; grid-row: 1;
   }
 
   svg#recon-svg { width: 100%; height: 100%; display: block; }
@@ -495,8 +506,6 @@
   </section>
 </main>
 
-<div id="expand-backdrop"></div>
-
 <script>
 "use strict";
 
@@ -688,17 +697,14 @@ tabGraph.addEventListener('click', () => { tabGraph.classList.add('active'); tab
 tabApt.addEventListener('click', () => { tabApt.classList.add('active'); tabGraph.classList.remove('active'); viewApt.classList.add('active'); viewGraph.classList.remove('active'); });
 
 /* ---------------- expand / focus the hero panel ---------------- */
-const heroPanel = document.getElementById('hero');
+const consoleBody = document.querySelector('main.console-body');
 const expandBtn = document.getElementById('btn-expand');
-const expandBackdrop = document.getElementById('expand-backdrop');
 function setExpanded(on) {
-  heroPanel.classList.toggle('expanded', on);
-  expandBackdrop.classList.toggle('show', on);
+  consoleBody.classList.toggle('hero-expanded', on);
   expandBtn.textContent = on ? '⤡' : '⤢';
   expandBtn.title = on ? 'Collapse' : 'Expand';
 }
-expandBtn.addEventListener('click', () => setExpanded(!heroPanel.classList.contains('expanded')));
-expandBackdrop.addEventListener('click', () => setExpanded(false));
+expandBtn.addEventListener('click', () => setExpanded(!consoleBody.classList.contains('hero-expanded')));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setExpanded(false); });
 
 /* ---------------- metrics footer ---------------- */
