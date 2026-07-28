@@ -270,13 +270,16 @@
   .viewtabs button:hover { color: var(--ink-1); }
   .viewtabs button.active { background: var(--brand-wash); color: var(--brand); }
 
-  /* #graphview/#aptview are full-bleed layers within .panel-body (which is
-     already position:relative via its inline style). Using position:absolute
-     here — rather than width/height:100% block sizing — avoids depending on
-     flex/percentage-height resolution through the panel's flex-column chain;
-     it's a guaranteed, unambiguous fit no matter what the parent does. */
-  #graphview, #aptview { position: absolute; inset: 0; display: none; }
-  #graphview.active, #aptview.active { display: block; }
+  /* #agentsview/#graphview/#aptview are full-bleed layers within .panel-body
+     (which is already position:relative via its inline style). Using
+     position:absolute here — rather than width/height:100% block sizing —
+     avoids depending on flex/percentage-height resolution through the panel's
+     flex-column chain; it's a guaranteed, unambiguous fit no matter what the
+     parent does. All three MUST be listed here — a view left out of this rule
+     stays visible under the others regardless of the tab switcher's .active
+     bookkeeping. */
+  #agentsview, #graphview, #aptview { position: absolute; inset: 0; display: none; }
+  #agentsview.active, #graphview.active, #aptview.active { display: block; }
 
   .expand-btn {
     display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
@@ -324,6 +327,33 @@
   .g-edge .elabel.show { opacity: 1; }
   .g-edge .elabel-bg { fill: var(--surface-1); opacity: 0; transition: opacity .6s; }
   .g-edge .elabel-bg.show { opacity: 1; }
+
+  /* ---------- Agents live-topology view (Act 1) ---------- */
+  #agentsview svg { width: 100%; height: 100%; display: block; }
+  .at-node { opacity: 0; transition: opacity .4s, transform .4s cubic-bezier(.16,1,.3,1); }
+  .at-node.show { opacity: 1; }
+  .at-node.done { opacity: 0.3; }
+  .at-node rect.body { fill: var(--surface-1); stroke: var(--border-2); stroke-width: 1.6; transition: stroke .3s, filter .3s; }
+  .at-node.active rect.body { stroke: var(--ring); filter: drop-shadow(0 0 7px var(--glow)); }
+  .at-node text { font-family: var(--mono); fill: var(--ink-1); text-anchor: middle; }
+  .at-node .at-role { font-family: var(--disp); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; fill: var(--ink-3); }
+  .at-node .at-sub { font-size: 8.5px; fill: var(--ink-3); }
+  .at-node rect.ping { fill: none; stroke: var(--ring); stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center; }
+  .at-node.spawning rect.ping { animation: atPing .6s ease-out; }
+  @keyframes atPing { 0% { opacity: .85; transform: scale(1); } 100% { opacity: 0; transform: scale(1.55); } }
+  .at-edge { fill: none; stroke: var(--border-2); stroke-width: 1.6; opacity: 0; transition: opacity .4s, stroke .3s, stroke-width .3s; }
+  .at-edge.show { opacity: 0.45; }
+  .at-edge.active { opacity: 1; stroke-width: 2.2; }
+  .at-tally {
+    position: absolute; top: 12px; right: 16px; font-family: var(--mono); font-size: 11px;
+    color: var(--ink-3); text-align: right; line-height: 1.5; pointer-events: none;
+  }
+  .at-tally b { color: var(--ink-1); font-weight: 600; }
+  .at-hint {
+    position: absolute; bottom: 12px; left: 0; right: 0; text-align: center;
+    font-size: 10.5px; color: var(--ink-3); font-family: var(--disp); letter-spacing: .04em;
+    text-transform: uppercase; pointer-events: none;
+  }
 
   /* ---------- APT timeline view ---------- */
   #aptview { padding: 26px 22px; overflow-y: auto; }
@@ -506,13 +536,22 @@
     <div class="panel-head">
       <h2>Investigation</h2>
       <div class="viewtabs">
-        <button id="tab-graph" class="active">Reconstruction graph</button>
+        <button id="tab-agents" class="active">Agents</button>
+        <button id="tab-graph">Reconstruction graph</button>
         <button id="tab-apt">APT kill-chain</button>
       </div>
       <button class="expand-btn" id="btn-expand" title="Expand">⤢</button>
     </div>
     <div class="panel-body" style="position:relative;">
-      <div id="graphview" class="active">
+      <div id="agentsview" class="active">
+        <svg id="agents-svg" viewBox="0 0 1000 620" preserveAspectRatio="xMidYMid meet">
+          <g id="at-edges"></g>
+          <g id="at-nodes"></g>
+        </svg>
+        <div class="at-tally" id="at-tally"></div>
+        <div class="at-hint" id="at-hint">Live agent activity — the reconstruction graph appears when the investigation completes</div>
+      </div>
+      <div id="graphview">
         <svg id="recon-svg" viewBox="0 0 1000 620" preserveAspectRatio="xMidYMid meet">
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -766,6 +805,175 @@ function applyGraphOp(op) {
   });
 }
 
+/* ---------------- Agents live topology (Act 1) ---------------- */
+const atNodesLayer = document.getElementById('at-nodes');
+const atEdgesLayer = document.getElementById('at-edges');
+const atTallyEl = document.getElementById('at-tally');
+const AT_W = { chief: 172, investigator: 152, qa: 152 };
+const AT_H = 46;
+const AT_X = { chief: 150, investigator: 470, qa: 812 };
+const AT_VIEW_H = 620;
+const AT_MARGIN = 50;          // top/bottom margin within the viewBox
+const AT_ROW = 56;             // default vertical spacing between QA slots
+const AT_BLOCK_GAP = 26;       // gap between one investigator's QA block and the next
+const topo = {
+  chief: null, invOrder: [], inv: {}, qa: {}, curInvByHost: {}, activeQA: null,
+  counts: { inv: 0, qa: 0, q: 0 },
+};
+
+// Tidy-tree layout, recomputed on every spawn: QA agents are grouped into a
+// contiguous vertical block per investigator (no interleaving -> no crossing
+// edges), each investigator is centered on its own block, and the Chief is
+// centered on the investigators' span. Row height compresses if the total
+// content would exceed the viewBox, so it never overflows regardless of how
+// many agents spawn.
+function recomputeLayout() {
+  const invIds = topo.invOrder;
+  if (invIds.length === 0) return;
+  const slots = invIds.map(id => Math.max(1, topo.inv[id].qaIds.length));
+  const totalSlots = slots.reduce((a, b) => a + b, 0);
+  const gapTotal = AT_BLOCK_GAP * (invIds.length - 1);
+  const available = AT_VIEW_H - AT_MARGIN * 2;
+  let rowH = AT_ROW;
+  if (totalSlots * rowH + gapTotal > available) {
+    rowH = Math.max(30, (available - gapTotal) / totalSlots);
+  }
+  const totalHeight = totalSlots * rowH + gapTotal;
+  let curY = (AT_VIEW_H - totalHeight) / 2;
+  const invCenters = [];
+
+  invIds.forEach((id, idx) => {
+    const inv = topo.inv[id];
+    const blockH = slots[idx] * rowH;
+    inv.qaIds.forEach((qid, qi) => {
+      setNodePos(topo.qa[qid], AT_X.qa, curY + rowH * (qi + 0.5));
+    });
+    const invY = curY + blockH / 2;
+    setNodePos(inv, AT_X.investigator, invY);
+    invCenters.push(invY);
+    curY += blockH + AT_BLOCK_GAP;
+  });
+
+  if (topo.chief) {
+    setNodePos(topo.chief, AT_X.chief, (invCenters[0] + invCenters[invCenters.length - 1]) / 2);
+  }
+
+  // Redraw every edge from current node positions — cheap at this node count
+  // and guarantees edges never lag behind a reflow.
+  invIds.forEach(id => {
+    const inv = topo.inv[id];
+    updateEdgePath(inv.edge, topo.chief.x + AT_W.chief / 2, topo.chief.y, inv.x - AT_W.investigator / 2, inv.y);
+    inv.qaIds.forEach(qid => {
+      const qa = topo.qa[qid];
+      updateEdgePath(qa.edge, inv.x + AT_W.investigator / 2, inv.y, qa.x - AT_W.qa / 2, qa.y);
+    });
+  });
+}
+function setNodePos(rec, x, y) {
+  rec.x = x; rec.y = y;
+  rec.el.setAttribute('transform', `translate(${x},${y})`);
+}
+function updateEdgePath(edgeEl, x1, y1, x2, y2) {
+  const mx = (x1 + x2) / 2;
+  edgeEl.setAttribute('d', `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+}
+
+function atNodeEl(role, typeLabel, mainLabel) {
+  const w = AT_W[role], h = AT_H, color = ROLE_COLOR[role];
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.setAttribute('class', 'at-node at-' + role);
+  g.style.setProperty('--ring', color);
+  g.style.setProperty('--glow', color);
+  g.innerHTML = `
+    <rect class="ping" x="${-w/2}" y="${-h/2}" width="${w}" height="${h}" rx="9"></rect>
+    <rect class="body" x="${-w/2}" y="${-h/2}" width="${w}" height="${h}" rx="9"></rect>
+    <text class="at-role" x="0" y="-4">${escapeHtml(typeLabel)}</text>
+    <text x="0" y="13" font-size="11.5">${escapeHtml(mainLabel)}</text>`;
+  atNodesLayer.appendChild(g);
+  requestAnimationFrame(() => { g.classList.add('show', 'spawning'); setTimeout(() => g.classList.remove('spawning'), 640); });
+  return g;
+}
+function atEdge(role) {
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p.setAttribute('class', 'at-edge');
+  p.style.stroke = ROLE_COLOR[role];
+  atEdgesLayer.appendChild(p);
+  requestAnimationFrame(() => p.classList.add('show'));
+  return p;
+}
+function topoMarkActive(rec) { if (!rec) return; rec.el.classList.add('active'); rec.el.classList.remove('done'); if (rec.edge) rec.edge.classList.add('active'); }
+function topoMarkDone(rec) { if (!rec) return; rec.el.classList.add('done'); rec.el.classList.remove('active'); if (rec.edge) rec.edge.classList.remove('active'); }
+function topoEnsureChief() {
+  if (topo.chief) return topo.chief;
+  const el = atNodeEl('chief', 'CHIEF INSPECTOR', 'orchestrating');
+  topo.chief = { el, x: AT_X.chief, y: AT_VIEW_H / 2, role: 'chief' };
+  el.setAttribute('transform', `translate(${topo.chief.x},${topo.chief.y})`);
+  topoMarkActive(topo.chief);
+  return topo.chief;
+}
+function topoSpawnInvestigator(id, host) {
+  if (topo.inv[id]) { topoMarkActive(topo.inv[id]); return; }
+  const chief = topoEnsureChief();
+  const el = atNodeEl('investigator', 'INVESTIGATOR', host || metaFor(id).label);
+  const edge = atEdge('investigator');
+  topo.inv[id] = { el, edge, x: chief.x, y: chief.y, host, qaIds: [] };
+  topo.invOrder.push(id);
+  topo.counts.inv++;
+  if (host) topo.curInvByHost[host] = id;
+  topoMarkActive(topo.inv[id]);
+  recomputeLayout();
+  updateTally();
+}
+function topoSpawnQA(id, host) {
+  if (topo.qa[id]) { topoMarkActive(topo.qa[id]); return; }
+  const parentId = topo.curInvByHost[host];
+  const parent = topo.inv[parentId];
+  if (!parent) return;
+  const specM = metaFor(id).label.match(/\(([^)]+)\)/);
+  const el = atNodeEl('qa', 'QA AGENT', specM ? specM[1] : id.replace(/^qa-/, ''));
+  const edge = atEdge('qa');
+  topo.qa[id] = { el, edge, x: parent.x, y: parent.y, parentId };
+  parent.qaIds.push(id);
+  topo.counts.qa++;
+  if (topo.activeQA && topo.activeQA !== id) topoMarkDone(topo.qa[topo.activeQA]);
+  topo.activeQA = id;
+  topoMarkActive(topo.qa[id]);
+  recomputeLayout();
+  updateTally();
+}
+function topoCompleteInvestigator(id) {
+  const inv = topo.inv[id];
+  if (inv) topoMarkDone(inv);
+  Object.values(topo.qa).forEach(q => { if (q.parentId === id) topoMarkDone(q); });
+  if (topo.activeQA && topo.qa[topo.activeQA] && topo.qa[topo.activeQA].parentId === id) topo.activeQA = null;
+}
+function topoCompleteAll() {
+  topoMarkDone(topo.chief);
+  Object.values(topo.inv).forEach(topoMarkDone);
+  Object.values(topo.qa).forEach(topoMarkDone);
+}
+function updateTally() {
+  atTallyEl.innerHTML = `Investigators <b>${topo.counts.inv}</b><br>QA agents <b>${topo.counts.qa}</b><br>Queries <b>${topo.counts.q}</b>`;
+}
+function topoReset() {
+  atNodesLayer.innerHTML = ''; atEdgesLayer.innerHTML = '';
+  topo.chief = null; topo.invOrder = []; topo.inv = {}; topo.qa = {}; topo.curInvByHost = {}; topo.activeQA = null;
+  topo.counts = { inv: 0, qa: 0, q: 0 };
+  updateTally();
+}
+function topoHandle(ev) {
+  switch (ev.type) {
+    case 'run_started': topoEnsureChief(); break;
+    case 'chief_thinking': case 'chief_reflection': case 'lead_dispatched':
+    case 'pivot_found': case 'final_report': topoMarkActive(topoEnsureChief()); break;
+    case 'investigator_started': topoSpawnInvestigator(ev.agent_id, ev.host); break;
+    case 'qa_question': topoSpawnQA(ev.agent_id, ev.host); break;
+    case 'sql_query': topo.counts.q++; updateTally(); if (topo.activeQA) topoMarkActive(topo.qa[topo.activeQA]); break;
+    case 'investigator_summary': topoCompleteInvestigator(ev.agent_id); break;
+    case 'run_complete': topoCompleteAll(); break;
+  }
+}
+
 /* ---------------- APT kill-chain view ---------------- */
 const stageTrack = document.getElementById('stage-track');
 const stageCols = {};
@@ -790,11 +998,22 @@ function lightStage(stageName, chipText, chipStatus) {
   }
 }
 
-/* ---------------- view switcher ---------------- */
-const tabGraph = document.getElementById('tab-graph'), tabApt = document.getElementById('tab-apt');
-const viewGraph = document.getElementById('graphview'), viewApt = document.getElementById('aptview');
-tabGraph.addEventListener('click', () => { tabGraph.classList.add('active'); tabApt.classList.remove('active'); viewGraph.classList.add('active'); viewApt.classList.remove('active'); });
-tabApt.addEventListener('click', () => { tabApt.classList.add('active'); tabGraph.classList.remove('active'); viewApt.classList.add('active'); viewGraph.classList.remove('active'); });
+/* ---------------- view switcher (3 tabs) ---------------- */
+const VIEWS = {
+  agents: { tab: document.getElementById('tab-agents'), view: document.getElementById('agentsview') },
+  graph:  { tab: document.getElementById('tab-graph'),  view: document.getElementById('graphview') },
+  apt:    { tab: document.getElementById('tab-apt'),    view: document.getElementById('aptview') },
+};
+let userPinnedView = false;
+function setView(name, byUser) {
+  Object.entries(VIEWS).forEach(([k, o]) => {
+    const on = k === name;
+    o.tab.classList.toggle('active', on);
+    o.view.classList.toggle('active', on);
+  });
+  if (byUser) userPinnedView = true;
+}
+Object.keys(VIEWS).forEach(name => VIEWS[name].tab.addEventListener('click', () => setView(name, true)));
 
 /* ---------------- expand / focus the hero panel ---------------- */
 const heroPanel = document.getElementById('hero');
@@ -829,6 +1048,7 @@ function processEvent(ev) {
   pushEvidence(ev);
   pushArtifact(ev);
   updateRunningMetrics(ev);
+  try { topoHandle(ev); } catch (e) { console.error('topo error', e); }
   if (ev.graphOp) applyGraphOp(ev.graphOp);
   if (ev.stage) {
     let chipText = null, chipStatus = null;
@@ -848,7 +1068,12 @@ function processEvent(ev) {
   }
   if (ev.type === 'investigator_summary') markOrgDone(ev.agent_id);
   if (ev.type === 'metrics') showFinalMetrics(ev.detail);
-  if (ev.type === 'run_complete') onStreamComplete();
+  if (ev.type === 'run_complete') {
+    onStreamComplete();
+    // Act 2 reveal: auto-advance to the reconstruction graph on completion,
+    // unless the presenter manually pinned a tab during the run.
+    if (!userPinnedView) setView('graph');
+  }
   if (ev.poi) document.getElementById('poi-value').textContent = ev.poi;
 }
 
@@ -888,6 +1113,9 @@ function resetConsole() {
   document.getElementById('elapsed').textContent = '00:00';
   document.getElementById('m-elapsed').textContent = '00:00';
   clearInterval(state.tickTimer);
+  topoReset();
+  userPinnedView = false;
+  setView('agents');
 }
 
 function fmtTime(ms) {
