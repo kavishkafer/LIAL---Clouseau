@@ -138,7 +138,7 @@
       "narration": "PIVOT CONFIRMED: WIN-FINANCE-07 → WIN-DC-01 over SMB (port 445), driven by the C2 process. The Chief Inspector opens a second investigation on the domain controller.",
       "detail": { "src_host": "WIN-FINANCE-07", "dst_host": "WIN-DC-01", "ip": "10.10.20.5", "port": 445, "ts": "09:42:17", "process": "rundll32.exe", "pid": 4790 },
       "graphOp": [
-        { "op": "addNode", "node": { "id": "h2", "label": "WIN-DC-01", "kind": "host", "x": 80, "y": 50 } },
+        { "op": "addNode", "node": { "id": "h2", "label": "WIN-DC-01", "kind": "host", "x": 74, "y": 50 } },
         { "op": "addEdge", "edge": { "id": "epivot", "from": "proc_rundll", "to": "h2", "label": "lateral movement (SMB 445)", "pivot": true } }
       ] },
 
@@ -165,7 +165,7 @@
     { "seq": 33, "delayMs": 1400, "type": "artifact_found", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Discovery",
       "narration": "Artifact recorded: attacker enumerated Domain Admins from cmd.exe (PID 2210) immediately after the pivot.",
       "detail": { "artifact_type": "process", "value": "cmd.exe", "pid": 2210, "malicious": true },
-      "graphOp": { "op": "addNode", "node": { "id": "proc_cmd", "label": "cmd.exe\nPID 2210", "kind": "process", "x": 88, "y": 22, "status": "critical" } } },
+      "graphOp": { "op": "addNode", "node": { "id": "proc_cmd", "label": "cmd.exe\nPID 2210", "kind": "process", "x": 84, "y": 22, "status": "critical" } } },
 
     { "seq": 34, "delayMs": 1400, "type": "sql_query", "role": "qa", "agent_id": "qa-audit-2", "host": "WIN-DC-01", "stage": "Persistence",
       "narration": "Checking for any new services created around this time (a common persistence technique).",
@@ -179,7 +179,7 @@
       "narration": "Artifact recorded: malicious persistence service “WinUpdateSvc” (PID 2255).",
       "detail": { "artifact_type": "process", "value": "WinUpdateSvc", "pid": 2255, "malicious": true },
       "graphOp": [
-        { "op": "addNode", "node": { "id": "proc_svc", "label": "WinUpdateSvc\nPID 2255", "kind": "process", "x": 88, "y": 50, "status": "critical" } },
+        { "op": "addNode", "node": { "id": "proc_svc", "label": "WinUpdateSvc\nPID 2255", "kind": "process", "x": 84, "y": 50, "status": "critical" } },
         { "op": "addEdge", "edge": { "id": "e8", "from": "h2", "to": "proc_cmd", "label": "executed" } },
         { "op": "addEdge", "edge": { "id": "e9", "from": "proc_cmd", "to": "proc_svc", "label": "installed" } }
       ] },
@@ -196,8 +196,8 @@
       "narration": "Artifact recorded: sensitive archive HR_Records_2026.zip staged for exfiltration.",
       "detail": { "artifact_type": "file", "value": "HR_Records_2026.zip" },
       "graphOp": [
-        { "op": "addNode", "node": { "id": "proc_7z", "label": "7z.exe\nPID 2301", "kind": "process", "x": 88, "y": 78, "status": "serious" } },
-        { "op": "addNode", "node": { "id": "file2", "label": "HR_Records_2026.zip", "kind": "file", "x": 96, "y": 78, "status": "critical" } },
+        { "op": "addNode", "node": { "id": "proc_7z", "label": "7z.exe\nPID 2301", "kind": "process", "x": 84, "y": 78, "status": "serious" } },
+        { "op": "addNode", "node": { "id": "file2", "label": "HR_Records_2026.zip", "kind": "file", "x": 93, "y": 78, "status": "critical" } },
         { "op": "addEdge", "edge": { "id": "e10", "from": "proc_svc", "to": "proc_7z", "label": "spawned" } },
         { "op": "addEdge", "edge": { "id": "e11", "from": "proc_7z", "to": "file2", "label": "compressed" } }
       ] },
@@ -214,7 +214,7 @@
       "narration": "Artifact recorded: 340 MB of HR data exfiltrated to 198.51.100.23.",
       "detail": { "artifact_type": "address", "value": "198.51.100.23", "bytes": 356515840 },
       "graphOp": [
-        { "op": "addNode", "node": { "id": "ip2", "label": "198.51.100.23", "kind": "ip", "x": 100, "y": 64, "status": "critical" } },
+        { "op": "addNode", "node": { "id": "ip2", "label": "198.51.100.23", "kind": "ip", "x": 96, "y": 64, "status": "critical" } },
         { "op": "addEdge", "edge": { "id": "e12", "from": "proc_7z", "to": "ip2", "label": "exfiltrated 340MB" } }
       ] },
 

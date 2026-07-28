@@ -552,7 +552,7 @@
         <div class="at-hint" id="at-hint">Live agent activity — the reconstruction graph appears when the investigation completes</div>
       </div>
       <div id="graphview">
-        <svg id="recon-svg" viewBox="0 0 1000 620" preserveAspectRatio="xMidYMid meet">
+        <svg id="recon-svg" viewBox="0 0 1500 620" preserveAspectRatio="xMidYMid meet">
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0,0 L10,5 L0,10 z" fill="var(--border-2)"></path>
@@ -755,7 +755,7 @@ const gNodes = {};
 const NODE_W = { host: 108, domain: 128, ip: 100, file: 132, process: 110 };
 const NODE_H = 42;
 
-function nodeXY(n) { return { x: n.x / 100 * 1000, y: n.y / 100 * 620 }; }
+function nodeXY(n) { return { x: n.x / 100 * 1500, y: n.y / 100 * 620 }; }
 
 function addGraphNode(n) {
   const { x, y } = nodeXY(n);
