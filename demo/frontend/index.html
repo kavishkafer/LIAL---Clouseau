@@ -315,6 +315,25 @@
     transition: max-width .3s cubic-bezier(.16, 1, .3, 1), max-height .3s cubic-bezier(.16, 1, .3, 1);
   }
   #hero.expanded #recon-svg { max-width: none; max-height: none; }
+  /* Mid-run empty state: the reconstruction graph has nothing to draw until
+     the investigation finishes and evidence is assembled — say so honestly
+     rather than showing a blank panel (or a spinner implying "any second",
+     which isn't true while the investigation itself is still running). */
+  .graph-placeholder {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 80%; text-align: center; pointer-events: none;
+  }
+  .graph-placeholder.hide { display: none; }
+  .graph-placeholder-title {
+    font-family: var(--disp); font-size: 13px; font-weight: 700; letter-spacing: .02em;
+    color: var(--ink-2); margin-bottom: 8px;
+  }
+  .graph-placeholder-title.assembling { color: var(--brand); }
+  @keyframes gpPulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+  .graph-placeholder-title.assembling::after { content: '…'; animation: gpPulse 1.2s ease-in-out infinite; }
+  .graph-placeholder-sub { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+  .graph-placeholder-sub b { color: var(--ink-1); font-weight: 600; }
+
   .g-node rect, .g-node circle, .g-node polygon { stroke-width: 1.6; transition: opacity .5s; }
   .g-node text { font-family: var(--mono); fill: var(--ink-1); }
   .g-node .kind-label { font-family: var(--disp); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; fill: var(--ink-3); }
@@ -561,6 +580,10 @@
           <g id="edges-layer"></g>
           <g id="nodes-layer"></g>
         </svg>
+        <div class="graph-placeholder" id="graph-placeholder">
+          <div class="graph-placeholder-title" id="gp-title">Attack graph assembles when the investigation completes</div>
+          <div class="graph-placeholder-sub">Evidence collected so far: <b id="gp-artifacts">0</b> artifacts · <b id="gp-queries">0</b> queries</div>
+        </div>
       </div>
       <div id="aptview">
         <div class="stage-track" id="stage-track"></div>
@@ -757,7 +780,37 @@ const NODE_H = 42;
 
 function nodeXY(n) { return { x: n.x / 100 * 1500, y: n.y / 100 * 620 }; }
 
+/* ---------------- graph placeholder (mid-run empty state) ---------------- */
+const graphPlaceholder = document.getElementById('graph-placeholder');
+const gpTitle = document.getElementById('gp-title');
+const gpArtifactsEl = document.getElementById('gp-artifacts');
+const gpQueriesEl = document.getElementById('gp-queries');
+function updateGraphPlaceholder() {
+  gpArtifactsEl.textContent = artifactsBody.children.length;
+  gpQueriesEl.textContent = sqlCount;
+}
+function hideGraphPlaceholder() {
+  graphPlaceholder.classList.add('hide');
+}
+function showGraphAssembling() {
+  // Fires when the run completes but no graphOp has arrived yet -- the real
+  // window while a post-run layout step (once built) would be computing the
+  // grounded graph. Today, on a live run, nothing ever arrives after this
+  // (layout isn't built yet); on replay, graphOps are already interleaved
+  // before run_complete, so this rarely shows for more than a frame.
+  if (Object.keys(gNodes).length > 0) return; // graph already has content
+  gpTitle.textContent = 'Investigation complete — assembling the attack graph';
+  gpTitle.classList.add('assembling');
+}
+function resetGraphPlaceholder() {
+  graphPlaceholder.classList.remove('hide');
+  gpTitle.textContent = 'Attack graph assembles when the investigation completes';
+  gpTitle.classList.remove('assembling');
+  updateGraphPlaceholder();
+}
+
 function addGraphNode(n) {
+  hideGraphPlaceholder();
   const { x, y } = nodeXY(n);
   const w = NODE_W[n.kind] || 110, h = NODE_H;
   const statusColor = n.status ? STATUS_COLOR[n.status] : (n.kind === 'host' ? 'var(--brand)' : 'var(--border-2)');
@@ -1068,8 +1121,10 @@ function processEvent(ev) {
   }
   if (ev.type === 'investigator_summary') markOrgDone(ev.agent_id);
   if (ev.type === 'metrics') showFinalMetrics(ev.detail);
+  updateGraphPlaceholder();
   if (ev.type === 'run_complete') {
     onStreamComplete();
+    showGraphAssembling();
     // Act 2 reveal: auto-advance to the reconstruction graph on completion,
     // unless the presenter manually pinned a tab during the run.
     if (!userPinnedView) setView('graph');
@@ -1116,6 +1171,7 @@ function resetConsole() {
   topoReset();
   userPinnedView = false;
   setView('agents');
+  resetGraphPlaceholder();
 }
 
 function fmtTime(ms) {
