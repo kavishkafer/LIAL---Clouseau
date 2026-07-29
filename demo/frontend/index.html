@@ -471,7 +471,12 @@
 
     <div class="setup-row">
       <label>Backend URL</label>
-      <input type="text" id="backend-url" value="http://localhost:8000">
+      <!-- 127.0.0.1, not "localhost": the backend binds IPv4-only, and
+           "localhost" also resolves to ::1 (IPv6) on most systems. If a
+           browser's Happy-Eyeballs race picks ::1 first, the connection is
+           refused instantly even though the backend is healthy -- an
+           intermittent, hard-to-reproduce failure. 127.0.0.1 is unambiguous. -->
+      <input type="text" id="backend-url" value="http://127.0.0.1:8000">
     </div>
 
     <div class="modeswitch">
