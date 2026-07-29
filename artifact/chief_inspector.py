@@ -11,9 +11,46 @@ import constants
 import prompts
 import os
 import json
+import re
 from handoff_logger import log_run_start, log_tool_event, log_run_end
 import observability
-        
+import graph_assembly
+
+# Matches the "- [SrcHost] -> [DstHost]: IP=.., Port=.., Timestamp=.., Process=..
+# PID=.." line format the chief prompt asks for (prompts.py's "PIVOTS FOUND:"
+# block). Only src/dst are required to match; every other field is extracted
+# independently below so a partially-malformed LLM line (never guaranteed
+# exact) still yields whatever it can, rather than an all-or-nothing regex
+# silently dropping the whole pivot.
+_PIVOT_LINE_RE = re.compile(r'^(?P<src>[^-].*?)\s*->\s*(?P<rest>.+)$')
+
+
+def _parse_pivot_line(line: str) -> dict:
+    detail = {'raw': line}
+    m = _PIVOT_LINE_RE.match(line)
+    if not m:
+        return detail
+    detail['src_host'] = m.group('src').strip()
+    dst_part = m.group('rest').split(':', 1)
+    detail['dst_host'] = dst_part[0].strip()
+    kv_text = dst_part[1] if len(dst_part) > 1 else ''
+    ip_m = re.search(r'IP=([\d.]+)', kv_text)
+    if ip_m:
+        detail['ip'] = ip_m.group(1)
+    port_m = re.search(r'Port=(\d+)', kv_text)
+    if port_m:
+        detail['port'] = int(port_m.group(1))
+    ts_m = re.search(r'Timestamp=([^,]+)', kv_text)
+    if ts_m:
+        detail['ts'] = ts_m.group(1).strip()
+    proc_m = re.search(r'Process=(\S+)', kv_text)
+    if proc_m:
+        detail['process'] = proc_m.group(1)
+    pid_m = re.search(r'PID=(\d+)', kv_text)
+    if pid_m:
+        detail['pid'] = int(pid_m.group(1))
+    return detail
+
 class investigate_ctx(dict):
     def __init__(self, llm: BaseChatModel, configs: dict):
         self.llm = llm
@@ -141,10 +178,16 @@ class Clouseau:
         for line in text.splitlines():
             line = line.strip()
             if line.startswith('-') and '->' in line:
+                detail = _parse_pivot_line(line.lstrip('- ').strip())
+                if 'src_host' in detail and 'dst_host' in detail:
+                    narration = f"Pivot identified: {detail['src_host']} → {detail['dst_host']}"
+                    if 'process' in detail:
+                        narration += f" (via {detail['process']}" + (f" PID={detail['pid']})" if 'pid' in detail else ')')
+                else:
+                    narration = f"Pivot identified: {detail['raw']}"
                 observability.emit(
                     run_id, 'pivot_found', role='chief', agent_id='chief-1', host=host_label,
-                    stage='Lateral Movement', narration=f"Pivot identified: {line.lstrip('- ').strip()}",
-                    detail={'raw': line.lstrip('- ').strip()},
+                    stage='Lateral Movement', narration=narration, detail=detail,
                 )
 
     def call_model(self, state: MessagesState):
@@ -274,6 +317,13 @@ def ClouseauRun(llm: BaseChatModel, configs: dict) -> str:
             narration="Chief Inspector compiles the final report.", detail={'report': narrative},
         )
     _emit_artifacts_from_eval(configs['run_id'], host_label, final_summary)
+    # Runs before end_run() queues its run_complete + sentinel, so the
+    # assembled graph reaches the delivery queue (and any consumer) in order,
+    # ahead of the connection closing — no backend changes needed.
+    graph_assembly.assemble_and_emit(
+        configs['run_id'], host_labels=[host_label] if host_label else [],
+        eval_json_by_host={host_label: final_summary},
+    )
     log_run_end(configs, final_summary)
     observability.end_run(configs['run_id'])
     return final_summary

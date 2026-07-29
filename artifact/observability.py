@@ -30,6 +30,12 @@ STAGES = [
 _lock = threading.Lock()
 _queues: Dict[str, "queue.Queue[Optional[dict]]"] = {}
 _seq_counters: Dict[str, int] = {}
+# Durable, append-only per-run event log — every event ever emitted, kept
+# separately from the transient delivery queue (which a slow/absent consumer
+# can leave un-drained, and whose contents shouldn't be inferred by peeking at
+# queue.Queue internals). This is the evidence substrate graph_assembly.py
+# reads at end-of-run: everything captured during the investigation, in order.
+_event_log: Dict[str, List[dict]] = {}
 
 
 def is_enabled() -> bool:
@@ -47,16 +53,24 @@ def get_queue(run_id: str) -> "queue.Queue[Optional[dict]]":
         return _queues.setdefault(run_id, queue.Queue())
 
 
+def get_log(run_id: str) -> List[dict]:
+    """Everything emitted for this run so far, in order. Safe to call mid-run
+    (e.g. a UI could poll this) or after completion (graph_assembly does)."""
+    with _lock:
+        return list(_event_log.get(run_id, []))
+
+
 def emit(run_id: Optional[str], type_: str, role: str, agent_id: str,
          host: Optional[str] = None, stage: Optional[str] = None,
-         narration: str = "", detail: Optional[dict] = None) -> None:
+         narration: str = "", detail: Optional[dict] = None,
+         graph_op: Optional[object] = None) -> None:
     if not is_enabled() or not run_id:
         return
     with _lock:
         seq = _seq_counters.get(run_id, 0) + 1
         _seq_counters[run_id] = seq
         q = _queues.setdefault(run_id, queue.Queue())
-    q.put({
+    event = {
         "run_id": run_id,
         "seq": seq,
         "ts": time.time(),
@@ -67,7 +81,12 @@ def emit(run_id: Optional[str], type_: str, role: str, agent_id: str,
         "stage": stage,
         "narration": narration,
         "detail": detail or {},
-    })
+    }
+    if graph_op is not None:
+        event["graphOp"] = graph_op  # matches the frontend's applyGraphOp contract
+    with _lock:
+        _event_log.setdefault(run_id, []).append(event)
+    q.put(event)
 
 
 def start_run(run_id: str, poi: str, poi_type: str = "", hosts: Optional[List[str]] = None) -> None:

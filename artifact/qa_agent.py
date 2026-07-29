@@ -217,7 +217,15 @@ def run_sql_query(db_name: Annotated[str, InjectedToolArg], query: str) -> str:
         observability.emit(
             ctx.get('run_id'), 'sql_result', role='qa', agent_id=ctx.get('agent_id', 'qa-agent'),
             host=ctx.get('host'), narration=f"Result: {len(rows)} row{'s' if len(rows) != 1 else ''} returned.",
-            detail={'rows': [list(map(str, r)) for r in rows[:10]], 'row_count': len(rows)},
+            # col_names (+ table) alongside rows let downstream KG assembly interpret
+            # a row semantically (e.g. "this column is pid, that one is ppid")
+            # instead of only having positional string values — required for
+            # deriving edges. Table name disambiguates same-named columns across
+            # tables (e.g. a future join).
+            detail={
+                'rows': [list(map(str, r)) for r in rows[:10]], 'row_count': len(rows),
+                'col_names': col_names, 'table': ctx.get('table'),
+            },
         )
         return '\n'.join(formatted_rows)
 

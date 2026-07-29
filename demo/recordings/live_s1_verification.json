@@ -1,0 +1,393 @@
+{
+  "recording_id": "live_s1_verification",
+  "title": "Real ATLAS S1 Telemetry — Capture Pipeline Verification",
+  "description": "NOT a hand-authored illustration -- every SQL query, row, and derived graph edge in this recording was produced by actually running the real qa_agent.run_sql_query hook against the real ATLAS S1 scenario database (artifact/scenarios/S1/scenario.db) and the real graph_assembly module, to verify the live-run capture-to-graph pipeline end to end. The underlying activity (Firefox captive-portal detection traffic) is routine, not malicious -- this run demonstrates the ENGINEERING pipeline, not an attack finding.",
+  "poi": {
+    "type": "IP",
+    "value": "149.165.180.17"
+  },
+  "hosts": [
+    "ATLAS-S1-HOST"
+  ],
+  "stages": [
+    "Initial Access",
+    "Execution",
+    "Command & Control",
+    "Discovery",
+    "Lateral Movement",
+    "Persistence",
+    "Collection",
+    "Exfiltration"
+  ],
+  "ground_truth": null,
+  "events": [
+    {
+      "seq": 1,
+      "type": "run_started",
+      "role": "system",
+      "agent_id": "system",
+      "host": null,
+      "stage": null,
+      "narration": "Investigation started. Point of interest: IP 149.165.180.17.",
+      "detail": {
+        "poi": "149.165.180.17",
+        "poi_type": "IP",
+        "hosts": [
+          "ATLAS-S1-HOST"
+        ]
+      },
+      "delayMs": 500
+    },
+    {
+      "seq": 2,
+      "type": "chief_thinking",
+      "role": "chief",
+      "agent_id": "chief-1",
+      "host": "ATLAS-S1-HOST",
+      "stage": null,
+      "narration": "The Chief Inspector is reviewing the point of interest and planning the first lead.",
+      "detail": {},
+      "delayMs": 1200
+    },
+    {
+      "seq": 3,
+      "type": "lead_dispatched",
+      "role": "chief",
+      "agent_id": "chief-1",
+      "host": "ATLAS-S1-HOST",
+      "stage": null,
+      "narration": "Chief Inspector dispatches an Investigator: \"Find what connected to 149.165.180.17 and trace it back.\"",
+      "detail": {
+        "lead": "Investigate address 149.165.180.17. Find any processes that connected to it and any related DNS activity."
+      },
+      "delayMs": 1200
+    },
+    {
+      "seq": 4,
+      "type": "investigator_started",
+      "role": "investigator",
+      "agent_id": "investigator-1",
+      "host": "ATLAS-S1-HOST",
+      "stage": null,
+      "narration": "Investigator begins work on host ATLAS-S1-HOST.",
+      "detail": {},
+      "delayMs": 900
+    },
+    {
+      "seq": 5,
+      "type": "qa_question",
+      "role": "qa",
+      "agent_id": "qa-audit_logs",
+      "host": "ATLAS-S1-HOST",
+      "stage": null,
+      "narration": "Process-audit specialist checks what connected to this address.",
+      "detail": {
+        "question": "What process connected to 149.165.180.17?"
+      },
+      "delayMs": 900
+    },
+    {
+      "seq": 6,
+      "type": "sql_query",
+      "role": "qa",
+      "agent_id": "qa-audit_logs",
+      "host": "ATLAS-S1-HOST",
+      "stage": null,
+      "narration": "Querying audit_logs.",
+      "detail": {
+        "sql": "SELECT pid, ppid, pname, object FROM audit_logs WHERE access='connect' AND object LIKE '%149.165.180.17%' ORDER BY time LIMIT 5"
+      },
+      "delayMs": 1100
+    },
+    {
+      "seq": 7,
+      "type": "sql_result",
+      "role": "qa",
+      "agent_id": "qa-audit_logs",
+      "host": "ATLAS-S1-HOST",
+      "stage": null,
+      "narration": "Result: 2 rows returned.",
+      "detail": {
+        "rows": [
+          [
+            "3148",
+            "1760",
+            "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+            "149.165.180.17:80"
+          ],
+          [
+            "3148",
+            "1760",
+            "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+            "149.165.180.17:80"
+          ]
+        ],
+        "row_count": 2,
+        "col_names": [
+          "pid",
+          "ppid",
+          "pname",
+          "object"
+        ],
+        "table": "audit_logs"
+      },
+      "delayMs": 1200
+    },
+    {
+      "seq": 8,
+      "type": "artifact_found",
+      "role": "qa",
+      "agent_id": "qa-audit_logs",
+      "host": "ATLAS-S1-HOST",
+      "stage": "Execution",
+      "narration": "Artifact recorded: firefox.exe (PID 3148) connected to the address of interest.",
+      "detail": {
+        "artifact_type": "process",
+        "value": "firefox.exe",
+        "pid": 3148,
+        "malicious": true
+      },
+      "delayMs": 1300
+    },
+    {
+      "seq": 9,
+      "type": "qa_question",
+      "role": "qa",
+      "agent_id": "qa-dns_requests",
+      "host": "ATLAS-S1-HOST",
+      "stage": null,
+      "narration": "DNS specialist checks which domain resolves to this address.",
+      "detail": {
+        "question": "What domain resolves to 149.165.180.17?"
+      },
+      "delayMs": 900
+    },
+    {
+      "seq": 10,
+      "type": "sql_query",
+      "role": "qa",
+      "agent_id": "qa-dns_requests",
+      "host": "ATLAS-S1-HOST",
+      "stage": null,
+      "narration": "Querying dns_requests.",
+      "detail": {
+        "sql": "SELECT domain, response FROM dns_requests WHERE response LIKE '%149.165.180.17%' LIMIT 3"
+      },
+      "delayMs": 1100
+    },
+    {
+      "seq": 11,
+      "type": "sql_result",
+      "role": "qa",
+      "agent_id": "qa-dns_requests",
+      "host": "ATLAS-S1-HOST",
+      "stage": null,
+      "narration": "Result: 3 rows returned.",
+      "detail": {
+        "rows": [
+          [
+            "detectportal.firefox.com",
+            "['149.165.180.17', '149.165.180.19']"
+          ],
+          [
+            "a1089.dscd.akamai.net",
+            "['149.165.180.19', '149.165.180.17']"
+          ],
+          [
+            "detectportal.firefox.com",
+            "['149.165.180.19', '149.165.180.17']"
+          ]
+        ],
+        "row_count": 3,
+        "col_names": [
+          "domain",
+          "response"
+        ],
+        "table": "dns_requests"
+      },
+      "delayMs": 1200
+    },
+    {
+      "seq": 12,
+      "type": "artifact_found",
+      "role": "qa",
+      "agent_id": "qa-dns_requests",
+      "host": "ATLAS-S1-HOST",
+      "stage": "Initial Access",
+      "narration": "Artifact recorded: domain detectportal.firefox.com resolves to the address of interest.",
+      "detail": {
+        "artifact_type": "domain",
+        "value": "detectportal.firefox.com"
+      },
+      "delayMs": 1300
+    },
+    {
+      "seq": 13,
+      "type": "investigator_summary",
+      "role": "investigator",
+      "agent_id": "investigator-1",
+      "host": "ATLAS-S1-HOST",
+      "stage": null,
+      "narration": "Investigator reports back: firefox.exe (PID 3148) connected to 149.165.180.17, which detectportal.firefox.com resolves to.",
+      "detail": {
+        "summary": "firefox.exe (PID 3148) made an outbound connection to 149.165.180.17:80. DNS records show detectportal.firefox.com resolves to the same address -- consistent with routine Firefox captive-portal detection traffic, not malicious activity."
+      },
+      "delayMs": 1500
+    },
+    {
+      "seq": 14,
+      "type": "final_report",
+      "role": "chief",
+      "agent_id": "chief-1",
+      "host": "ATLAS-S1-HOST",
+      "stage": null,
+      "narration": "Final report: firefox.exe (PID 3148) connected to 149.165.180.17, resolved via detectportal.firefox.com. Reconstructed from real S1 telemetry as an engineering verification of the capture-to-graph pipeline (routine browser traffic, not a claimed attack).",
+      "detail": {
+        "report": "engineering verification run"
+      },
+      "delayMs": 1600
+    },
+    {
+      "seq": 15,
+      "type": "artifact_found",
+      "role": "qa",
+      "agent_id": "system",
+      "host": "ATLAS-S1-HOST",
+      "stage": "Command & Control",
+      "narration": "Artifact recorded: address 149.165.180.17.",
+      "detail": {
+        "artifact_type": "address",
+        "value": "149.165.180.17"
+      },
+      "delayMs": 1300
+    },
+    {
+      "seq": 16,
+      "type": "artifact_found",
+      "role": "qa",
+      "agent_id": "system",
+      "host": "ATLAS-S1-HOST",
+      "stage": "Initial Access",
+      "narration": "Artifact recorded: domain detectportal.firefox.com.",
+      "detail": {
+        "artifact_type": "domain",
+        "value": "detectportal.firefox.com"
+      },
+      "delayMs": 1300
+    },
+    {
+      "seq": 17,
+      "type": "artifact_found",
+      "role": "qa",
+      "agent_id": "system",
+      "host": "ATLAS-S1-HOST",
+      "stage": "Execution",
+      "narration": "Artifact recorded: process firefox.exe.",
+      "detail": {
+        "artifact_type": "process",
+        "value": "firefox.exe",
+        "pid": 3148,
+        "malicious": true
+      },
+      "delayMs": 1300
+    },
+    {
+      "seq": 18,
+      "type": "graph_assembled",
+      "role": "system",
+      "agent_id": "system",
+      "host": null,
+      "stage": null,
+      "narration": "Attack graph assembled: 4 artifacts, 2 relationships.",
+      "detail": {
+        "node_count": 4,
+        "edge_count": 2
+      },
+      "graphOp": [
+        {
+          "op": "addNode",
+          "node": {
+            "id": "ip_149_165_180_17",
+            "label": "149.165.180.17",
+            "kind": "ip",
+            "x": 75.0,
+            "y": 50.0,
+            "status": "critical"
+          }
+        },
+        {
+          "op": "addNode",
+          "node": {
+            "id": "domain_detectportal_firefox_com",
+            "label": "detectportal.firefox.com",
+            "kind": "domain",
+            "x": 25.0,
+            "y": 40.0
+          }
+        },
+        {
+          "op": "addNode",
+          "node": {
+            "id": "proc_3148",
+            "label": "firefox.exe\nPID 3148",
+            "kind": "process",
+            "x": 25.0,
+            "y": 60.0,
+            "status": "critical"
+          }
+        },
+        {
+          "op": "addNode",
+          "node": {
+            "id": "host_ATLAS_S1_HOST",
+            "label": "ATLAS-S1-HOST",
+            "kind": "host",
+            "x": 25.0,
+            "y": 50.0
+          }
+        },
+        {
+          "op": "addEdge",
+          "edge": {
+            "id": "e0",
+            "from": "proc_3148",
+            "to": "ip_149_165_180_17",
+            "label": "connected to"
+          }
+        },
+        {
+          "op": "addEdge",
+          "edge": {
+            "id": "e1",
+            "from": "domain_detectportal_firefox_com",
+            "to": "ip_149_165_180_17",
+            "label": "resolves to"
+          }
+        }
+      ],
+      "delayMs": 1200
+    },
+    {
+      "seq": 19,
+      "type": "eval_started",
+      "role": "system",
+      "agent_id": "system",
+      "host": null,
+      "stage": null,
+      "narration": "Evaluating the reconstructed report against ground truth.",
+      "detail": {},
+      "delayMs": 900
+    },
+    {
+      "seq": 20,
+      "type": "run_complete",
+      "role": "system",
+      "agent_id": "system",
+      "host": null,
+      "stage": null,
+      "narration": "Investigation complete.",
+      "detail": {},
+      "delayMs": 500
+    }
+  ]
+}
