@@ -303,18 +303,11 @@
     from { opacity: 0; transform: scale(.95); }
     to { opacity: 1; transform: scale(1); }
   }
-  /* Default: a modest, centered preview — not "already fills the screen".
-     Centered via absolute+transform (not flex) — bulletproof regardless of
-     parent layout mode, and symmetric on both axes unlike block-flow's
-     default top-left anchoring. Expand lifts the cap so the same SVG grows
-     to fill the popped panel, instead of the panel merely growing around
-     unchanged content. */
-  #recon-svg {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    width: 100%; height: 100%; max-width: 640px; max-height: 380px; display: block;
-    transition: max-width .3s cubic-bezier(.16, 1, .3, 1), max-height .3s cubic-bezier(.16, 1, .3, 1);
-  }
-  #hero.expanded #recon-svg { max-width: none; max-height: none; }
+  /* Fills #graphview (already position:absolute;inset:0 — see the rule
+     above) exactly, same as #agentsview svg — the graph now has its own
+     zoom/pan/auto-fit, so it should use all available panel space rather
+     than sit capped at a small "preview" size waiting for expand. */
+  #recon-svg { width: 100%; height: 100%; display: block; }
   #recon-svg { cursor: grab; user-select: none; }
   #recon-svg:active { cursor: grabbing; }
   .graph-zoom-controls {
