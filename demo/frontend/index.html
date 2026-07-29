@@ -972,9 +972,14 @@ function reconZoomCenter(factor) {
 }
 
 reconSvg.addEventListener('wheel', (e) => {
+  // Zoom around the current view center, not the cursor -- cursor-anchored
+  // zoom shifts the frame toward whatever the mouse happens to be over,
+  // which can push other nodes out past the edge after only a couple of
+  // scroll notches. Centered zoom keeps all currently-framed content
+  // visible while scaling, matching what a presenter expects from "zoom in".
   e.preventDefault();
   reconUserAdjustedView = true;
-  reconZoomAt(e.deltaY > 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY);
+  reconZoomCenter(e.deltaY > 0 ? 1.1 : 1 / 1.1);
 }, { passive: false });
 
 reconSvg.addEventListener('mousedown', (e) => {
