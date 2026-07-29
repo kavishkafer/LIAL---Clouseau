@@ -246,12 +246,13 @@ metrics · run_complete
       host 2 with the pivot as the lead → merge both runs' events into one
       `run_id`/stream/graph. Today, live runs are single-host only; the two-host
       story only exists in the sample recording.
-- [ ] **Phase 2 — bounded LLM edge-labeling / track-assignment pass** (§9.3's
-      "optional later" item) — now the active next task. May only relabel or
-      reposition nodes/edges the deterministic KG already established; must never
-      introduce a node or edge the store has no evidence for, and must be a
-      separate flag-gated call that never touches `call_eval`'s prompt/schema
-      (which feeds precision/recall/F1 and must stay flag-OFF-byte-identical).
+- [x] **Phase 2 — bounded LLM edge-enrichment pass** (§9.3's "optional later"
+      item, scoped down this session — see §10). **Built + structurally/mock
+      verified; real-model verification against a live endpoint is the
+      remaining gap** (this dev machine has no LLM endpoint configured; a
+      local Ollama server happens to be running with `qwen3.5:2b`/
+      `qwen3:latest` — NOT `glm-4.6:cloud`, whose name suggests it may proxy
+      to a cloud API — that would be the one to test against next).
 - [x] ~~**`graphOp` for live runs**~~ **SUPERSEDED by §9 (agreed 2026-07-27),
       then BUILT and verified on real S1 telemetry.** The live reconstruction
       graph is materialized at end-of-run from captured evidence (grounded KG),
@@ -389,8 +390,12 @@ attack — and every claim traces to real evidence, not a guess."
 - ✅ Three-tab center with auto-default, plus zoom/pan/auto-fit on the
   reconstruction graph (not in the original plan, added in response to the
   graph looking lost/uneditable at both small and large scales).
-- **Deferred, as planned:** the bounded LLM edge-labeling/track-assignment pass
-  (now the active next task — see §8) and true incremental live-tracking.
+- ✅ **Bounded LLM edge-enrichment pass — built** (§10), scoped down from
+  §9.3's original "connect/label" wording to **new edges only**: it never
+  rewrites a deterministic edge's label. Structurally/mock-verified; real-model
+  verification still open (see §8).
+- **Still deferred:** true incremental live-tracking (nodes/edges still
+  materialize once, at end-of-run, not progressively during the run).
 
 ## 10. Status Log
 - **2026-07-27** — Plan approved. Branch `demo/live-observatory` created off
@@ -489,3 +494,49 @@ attack — and every claim traces to real evidence, not a guess."
   **Next: Phase 2** — the bounded LLM edge-labeling/track-assignment pass
   (§8, §9.3, §9.9), the one piece of §9's design intentionally deferred from
   the first cut.
+- **2026-07-29 (Phase 2 — bounded LLM edge-enrichment)** — Planned (via
+  EnterPlanMode) and built the §9.3 "optional later" pass, scoped down after
+  user clarification to **new edges only** — it never rewrites a
+  deterministic edge's label, so "connected to"/"resolves to" stay exactly
+  the mechanical wording `graph_assembly.py` already produces, forever.
+  Added `_llm_enrichment_enabled()` (new `CLOUSEAU_GRAPH_LLM=1` flag,
+  independent of `CLOUSEAU_OBSERVABILITY`, default OFF so a flaky/slow model
+  on-site can never take the deterministic graph down with it),
+  `_build_enrichment_prompt`/`_propose_edges_with_llm` (JSON-mode call
+  mirroring `call_eval`'s own `.bind(response_format=...)` + fallback
+  pattern, but built from the small deterministic node/edge list plus a
+  short narration digest — not a full transcript replay — and a 512-token
+  output cap, since the expected output is a short edge list, not a report),
+  and `enrich_and_emit` (mirrors `assemble_and_emit`'s shape; wrapped in a
+  blanket `try/except` so any failure — disabled flag, no LLM, timeout,
+  malformed output — leaves the already-emitted deterministic graph
+  completely unaffected). Wired into `ClouseauRun` right after
+  `assemble_and_emit`, before `end_run()`. **Grounding gate enforced by
+  validation, not prompt instruction**: every proposed edge must reference
+  two ids already in the deterministic node set and must not duplicate an
+  existing `(from, to)` pair, or it's silently dropped.
+  **Verified with a 13-case mocked-LLM script** (`verify_graph_enrichment.py`,
+  scratch, not committed) covering: valid new edge accepted; edge referencing
+  an unknown id dropped; edge duplicating an existing pair dropped; self-loop
+  dropped; markdown-fenced JSON parsed; malformed JSON / empty edge list
+  handled without raising; `.bind()` failing falls back to plain `.invoke()`;
+  two same-pair edges in one response de-duped; and end-to-end
+  `enrich_and_emit` checks — flag off is a true no-op, `llm=None` is a
+  no-op, an LLM that raises on every call path is caught without crashing,
+  and the happy path emits a `graph_enriched` event with the edge correctly
+  tagged `llm: True`. All 13 passed. Frontend: `.g-edge path.llm-inferred`
+  (dashed, muted `--ink-3`, distinct from both plain deterministic edges and
+  the brand-colored pivot dashes) plus an " · inferred" label suffix, so an
+  LLM-derived edge is visually distinguishable from hard evidence at a
+  glance — ported to both the real console and the prototype Artifact.
+  **Known gap, called out explicitly rather than glossed over:** no live LLM
+  endpoint is configured on this dev machine, so this is verified against
+  mocked responses only — real-model behavior (does a real model actually
+  propose sensible, useful edges, and does it respect the "never invent an
+  id" instruction under real conditions rather than just in a canned test) is
+  still unverified. A local Ollama server happens to be running
+  (`qwen3.5:2b`, `qwen3:latest`, and `glm-4.6:cloud` — the last one's name
+  suggests it may proxy to a cloud API, so it should NOT be used here or for
+  the demo's "100% local inference" claim generally) and would be the
+  natural next step to close that gap, the same way the S1 recording script
+  closed the equivalent gap for Phase 1.

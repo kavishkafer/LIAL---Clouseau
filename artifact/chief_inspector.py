@@ -324,6 +324,14 @@ def ClouseauRun(llm: BaseChatModel, configs: dict) -> str:
         configs['run_id'], host_labels=[host_label] if host_label else [],
         eval_json_by_host={host_label: final_summary},
     )
+    # Optional Phase 2 enrichment (CLOUSEAU_GRAPH_LLM=1) — may only add edges
+    # between nodes assemble_and_emit already committed above; a no-op unless
+    # explicitly enabled, and any failure leaves the deterministic graph above
+    # completely unaffected. See graph_assembly.py's module docstring.
+    graph_assembly.enrich_and_emit(
+        configs['run_id'], host_labels=[host_label] if host_label else [],
+        eval_json_by_host={host_label: final_summary}, llm=llm,
+    )
     log_run_end(configs, final_summary)
     observability.end_run(configs['run_id'])
     return final_summary

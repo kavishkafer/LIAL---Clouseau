@@ -346,6 +346,13 @@
   .g-edge path { fill: none; stroke: var(--border-2); stroke-width: 1.6; opacity: 0; transition: opacity .6s; }
   .g-edge path.show { opacity: 1; }
   .g-edge path.pivot { stroke: var(--brand); stroke-width: 2.4; stroke-dasharray: 5 4; }
+  /* Semantic-enrichment edges (Phase 2, CLOUSEAU_GRAPH_LLM=1): distinct from
+     both the plain deterministic edges and the brand-colored pivot edges —
+     an LLM inferred this relationship rather than a SQL row proving it
+     mechanically, and that distinction should stay visible on screen, not
+     just in the underlying data. */
+  .g-edge path.llm-inferred { stroke: var(--ink-3); stroke-width: 1.6; stroke-dasharray: 2.5 3; opacity: .8; }
+  .g-edge .elabel.llm-inferred { font-style: italic; fill: var(--ink-3); }
   .g-edge .elabel { font-family: var(--body); font-size: 9.5px; fill: var(--ink-2); opacity: 0; transition: opacity .6s; }
   .g-edge .elabel.show { opacity: 1; }
   .g-edge .elabel-bg { fill: var(--surface-1); opacity: 0; transition: opacity .6s; }
@@ -851,11 +858,12 @@ function addGraphEdge(e) {
   const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   g.setAttribute('class', 'g-edge');
   const path = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
-  const labelW = Math.min(150, 10 + (e.label ? e.label.length * 5.6 : 0));
+  const labelText = (e.label || '') + (e.llm ? ' · inferred' : '');
+  const labelW = Math.min(180, 10 + (labelText ? labelText.length * 5.6 : 0));
   g.innerHTML = `
-    <path d="${path}" ${e.pivot ? 'class="pivot"' : ''} marker-end="url(#arrow)"></path>
+    <path d="${path}" ${e.pivot ? 'class="pivot"' : (e.llm ? 'class="llm-inferred"' : '')} marker-end="url(#arrow)"></path>
     <rect class="elabel-bg" x="${mx - labelW/2}" y="${(y1+y2)/2 - 16}" width="${labelW}" height="15" rx="4"></rect>
-    <text class="elabel" x="${mx}" y="${(y1+y2)/2 - 5}" text-anchor="middle">${escapeHtml(e.label || '')}</text>
+    <text class="elabel${e.llm ? ' llm-inferred' : ''}" x="${mx}" y="${(y1+y2)/2 - 5}" text-anchor="middle">${escapeHtml(labelText)}</text>
   `;
   edgesLayer.appendChild(g);
   requestAnimationFrame(() => {

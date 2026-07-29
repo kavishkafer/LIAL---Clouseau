@@ -24,10 +24,24 @@ CLOUSEAU_OBSERVABILITY, same as the rest of the demo instrumentation, and
 called synchronously from within ClouseauRun (chief_inspector.py) before
 observability.end_run() — so its output reaches the delivery queue before the
 run_complete sentinel does, with no backend changes required either.
+
+Phase 2 (bottom of this file, enrich_and_emit) adds an OPTIONAL, separately
+flag-gated (CLOUSEAU_GRAPH_LLM=1) LLM pass on top of the above: it may
+propose ADDITIONAL edges between node ids the deterministic pass already
+committed, to catch relationships the mechanical row-shape matcher misses. It
+can never introduce a node, and never rewrites a deterministic edge's label —
+every proposal is validated against the same grounding predicate the
+deterministic path uses before it's accepted. Failure of any kind (disabled
+flag, no LLM configured, malformed output, timeout) means this pass
+contributes nothing; the deterministic graph from assemble_and_emit() always
+stands on its own.
 """
 import json
+import os
 import re
 from typing import Dict, List, Optional
+
+from langchain_core.messages import HumanMessage
 
 import observability
 
@@ -241,4 +255,135 @@ def assemble_and_emit(run_id: str, host_labels: Optional[List[str]], eval_json_b
         run_id, 'graph_assembled', role='system', agent_id='system',
         narration=f"Attack graph assembled: {n_nodes} artifacts, {n_edges} relationships.",
         detail={'node_count': n_nodes, 'edge_count': n_edges}, graph_op=ops,
+    )
+
+
+# ============================================================================
+# Phase 2 — optional LLM edge-enrichment pass (see module docstring).
+# Everything below is additive: it may only propose edges between node ids
+# assemble() already committed above, never a node, and never a relabeling of
+# a deterministic edge. Disabled by default; failure of any kind means it
+# contributes nothing.
+# ============================================================================
+
+_ENRICHMENT_NARRATION_TYPES = {'artifact_found', 'pivot_found', 'investigator_summary'}
+
+
+def _llm_enrichment_enabled() -> bool:
+    return os.environ.get('CLOUSEAU_GRAPH_LLM') == '1'
+
+
+def _build_enrichment_prompt(nodes: Dict[str, dict], existing_edges: List[dict],
+                              narrations: List[str]) -> str:
+    node_lines = '\n'.join(
+        f"- {nid} ({n['kind']}): {str(n['label']).replace(chr(10), ' ')}" for nid, n in nodes.items()
+    )
+    edge_lines = '\n'.join(f"- {e['from']} -{e['label']}-> {e['to']}" for e in existing_edges) or '(none)'
+    narration_text = '\n'.join(f"- {n}" for n in narrations[-20:]) or '(none)'
+    return f"""You are looking at a security investigation's established findings. Below are the ENTITIES that were confirmed (identified by id) and the RELATIONSHIPS already established between them, plus investigator narration for context.
+
+Entities:
+{node_lines}
+
+Established relationships:
+{edge_lines}
+
+Investigator narration:
+{narration_text}
+
+Task: suggest ADDITIONAL relationships between entities in the list above that the narration describes but aren't already in the established relationships list. Rules:
+- You may ONLY use entity ids from the "Entities" list above, copied exactly. Never invent a new id, and never describe a relationship involving anything not in that list.
+- Do not repeat a relationship that's already established, even if you'd word it differently.
+- If there is nothing to add, return an empty list.
+
+Response Format: return JSON as an object with an "edges" list, with the structure below. Example:
+
+```json
+{{"edges": [{{"from": "proc_3148", "to": "file_x", "label": "created"}}]}}
+```"""
+
+
+def _propose_edges_with_llm(nodes: Dict[str, dict], existing_edges: List[dict],
+                             narrations: List[str], llm) -> List[dict]:
+    """Invokes the same way call_eval (chief_inspector.py) does — JSON-mode
+    chat completion with a fallback if the endpoint doesn't support
+    response_format — but with a much smaller max_tokens, since the expected
+    output is a short edge list, not a report."""
+    messages = [HumanMessage(content=_build_enrichment_prompt(nodes, existing_edges, narrations))]
+    try:
+        json_model = llm.bind(response_format={"type": "json_object"})
+        response = json_model.invoke(messages, max_tokens=512)
+    except Exception:
+        response = llm.invoke(messages, max_tokens=512)
+
+    text = response.content if isinstance(response.content, str) else ''
+    text = text.strip()
+    if text.startswith('```'):
+        text = text.strip('`')
+        if text.lower().startswith('json'):
+            text = text[4:]
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    raw_edges = data.get('edges') if isinstance(data, dict) else None
+    if not isinstance(raw_edges, list):
+        return []
+
+    # Grounding gate — defense in depth, never trust the prompt instruction
+    # alone: same (src in nodes and dst in nodes and src != dst) predicate
+    # _derive_edges' add_edge helper already uses. Also drop anything
+    # duplicating an already-established (from, to) pair, regardless of the
+    # LLM's proposed label — this pass adds edges, it doesn't relabel them.
+    existing_pairs = {(e['from'], e['to']) for e in existing_edges}
+    seen_pairs = set(existing_pairs)
+    accepted: List[dict] = []
+    for i, e in enumerate(raw_edges):
+        if not isinstance(e, dict):
+            continue
+        src, dst, label = e.get('from'), e.get('to'), e.get('label')
+        if src not in nodes or dst not in nodes or src == dst:
+            continue
+        pair = (src, dst)
+        if pair in seen_pairs:
+            continue
+        seen_pairs.add(pair)
+        accepted.append({'id': f'ellm{i}', 'from': src, 'to': dst, 'label': str(label or 'related to')})
+    return accepted
+
+
+def enrich_and_emit(run_id: str, host_labels: Optional[List[str]],
+                     eval_json_by_host: Dict[str, str], llm) -> None:
+    if not observability.is_enabled() or not run_id or not _llm_enrichment_enabled() or llm is None:
+        return
+    try:
+        nodes: Dict[str, dict] = {}
+        for host, eval_text in (eval_json_by_host or {}).items():
+            for nid, n in _extract_nodes(eval_text).items():
+                n['host'] = host
+                nodes[nid] = n
+        if not nodes:
+            return
+        for host in host_labels or []:
+            nid = _safe_id('host', host)
+            nodes.setdefault(nid, {'id': nid, 'kind': 'host', 'label': host, 'host': host, 'status': None})
+
+        captured_events = observability.get_log(run_id)
+        sql_result_events = [e for e in captured_events if e.get('type') == 'sql_result']
+        pivot_events = [e for e in captured_events if e.get('type') == 'pivot_found']
+        existing_edges = _derive_edges(nodes, sql_result_events) + _derive_pivot_edges(nodes, pivot_events)
+        narrations = [e.get('narration') for e in captured_events
+                      if e.get('type') in _ENRICHMENT_NARRATION_TYPES and e.get('narration')]
+
+        new_edges = _propose_edges_with_llm(nodes, existing_edges, narrations, llm)
+    except Exception:
+        return
+    if not new_edges:
+        return
+
+    ops = [{'op': 'addEdge', 'edge': {**e, 'llm': True}} for e in new_edges]
+    observability.emit(
+        run_id, 'graph_enriched', role='system', agent_id='system',
+        narration=f"Attack graph enriched: {len(new_edges)} additional relationship(s) inferred from context.",
+        detail={'edge_count': len(new_edges)}, graph_op=ops,
     )
