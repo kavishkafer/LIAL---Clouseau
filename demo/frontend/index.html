@@ -930,11 +930,15 @@ function reconAutoFit() {
     x -= (newW - w) / 2;
     w = newW;
   }
-  // Never zoom in past the default scale for a sparse graph -- a couple of
-  // nodes should sit comfortably inside the full canvas, not fill it edge to edge.
-  if (w < RECON_VB_DEFAULT.w) {
+  // Only cap truly extreme zoom (a single node filling the whole canvas) --
+  // reuses the same floor manual zoom respects. Anything above that floor
+  // keeps its natural, content-hugging fit instead of snapping back out to
+  // the full 1500x620 canvas, which used to defeat auto-fit for almost any
+  // real graph (most graphs are narrower than the full canvas).
+  const clamped = reconClampScale(w, h);
+  if (clamped.w !== w) {
     const cx = x + w / 2, cy = y + h / 2;
-    w = RECON_VB_DEFAULT.w; h = RECON_VB_DEFAULT.h;
+    w = clamped.w; h = clamped.h;
     x = cx - w / 2; y = cy - h / 2;
   }
   reconVB = { x, y, w, h };
