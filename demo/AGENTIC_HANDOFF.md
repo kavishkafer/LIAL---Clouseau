@@ -117,6 +117,29 @@ demo/
     plain keyword/type lookup (pivot→Lateral Movement; artifact_type/keywords→
     the rest). Deterministic, zero extra LLM cost — matches the "no tokens spent
     on presentation logic" constraint in §2.
+  - `get_log(run_id)` — a durable, append-only per-run event log (separate from
+    the transient delivery queue a slow/absent consumer can leave undrained).
+    This is what `graph_assembly.py` reads at end-of-run.
+
+**§9 first-cut (grounded KG) — ✅ built + verified on real scenario data.**
+`artifact/graph_assembly.py` implements §9 end-to-end, deterministically (no
+LLM call): nodes come only from the Chief's final structured eval JSON (same
+schema `_emit_artifacts_from_eval` reads); edges are derived only between two
+already-committed node ids, from `sql_result` rows matching a recognized
+relationship shape (pid+ppid → spawned, pid+object/ip → connected to,
+domain+response → resolves to) or a parsed lateral-movement pivot — a row
+referencing an id that isn't already a committed node contributes nothing,
+which is the grounding rule enforced by construction, not by a later filter.
+Layout is a plain layered-DAG placement (topological layer, host-grouped
+track), collision-free, expressed as the same 0–100 `x`/`y` percentages the
+frontend already consumes via `graphOp` — no frontend contract change needed.
+Called synchronously inside `ClouseauRun` (`chief_inspector.py`) before
+`observability.end_run()`, so its `graph_assembled` event reaches the delivery
+queue before the `run_complete` sentinel closes it — zero backend changes.
+**Verified against real telemetry**, not just structurally: a script drove the
+real `qa_agent.run_sql_query` hook against the real ATLAS S1 scenario DB, fed
+the real chief output through `graph_assembly.assemble_and_emit`, and captured
+the actual resulting event log as `demo/recordings/live_s1_verification.json`.
 
 **Layer B — Backend** (`demo/backend`, FastAPI) — ✅ built + tested
 - `POST /run` → resolves a scenario from the **same catalog `app.py`'s CLI uses**
@@ -165,9 +188,11 @@ demo/
 
 Each event (dict, JSON-serializable — see `observability.emit()`): `run_id`, `seq`,
 `ts`, `type`, `role` (`chief|investigator|qa|system`), `agent_id`, `host`, `stage`,
-`narration` (plain English), `detail` (technical). Optionally `graphOp` (added by
-the *sample recording*, not by `observability.py` — live runs don't emit graph
-layout hints; the reconstruction graph for a live run is a known gap, see §8).
+`narration` (plain English), `detail` (technical). Optionally `graphOp` — an array
+of `{op:'addNode'|'addEdge', node/edge:{...}}` ops. In the sample recording it's
+hand-authored; on a real run it's produced by `graph_assembly.assemble_and_emit()`
+on a single `graph_assembled` event at end-of-run (§9, verified on real S1
+telemetry — no longer a gap, see §8/§10).
 
 ```
 run_started · chief_thinking · lead_dispatched · investigator_started ·
@@ -181,9 +206,10 @@ metrics · run_complete
   set by `observability.infer_stage()` (deterministic keyword/type lookup, zero
   LLM cost). Simpler than a second event type; the frontend's APT view just reads
   `ev.stage` off whatever event arrives.
-- `artifact_found` / `pivot_found` are what drive the **reconstruction graph** in
-  the sample recording (nodes = hosts/processes/domains/IPs/files; edges =
-  spawned/connected-to/downloaded/moved-laterally-to, via each event's `graphOp`).
+- The **reconstruction graph** is driven by `graphOp` on a single `graph_assembled`
+  event on a real run (nodes = the Chief's final eval JSON; edges = grounded
+  relationships derived from captured `sql_result` rows and parsed pivots — see
+  §9), or by `graphOp` spread across events in the hand-authored sample recording.
   `pivot_found` parses the multi-host "PIVOTS FOUND:" prompt convention already in
   `prompts.py`.
 - The **narration** string is authored directly at each emit-call site in the
@@ -199,7 +225,7 @@ metrics · run_complete
 | **0 — Instrumentation** | `artifact/observability.py`: event bus + callback handler + env-guarded semantic hooks | ✅ **Done.** Verified flag-OFF byte-identical output on the highest-risk touched function (`run_sql_query`) with a real sqlite DB; verified events flow correctly when enabled. |
 | **1 — Backend** | FastAPI + WebSocket + run controller + auto-recorder | ✅ **Done.** Tested via `TestClient`: full 48-event replay stream end-to-end; live-run error path (no LLM configured) fails cleanly with a correct `/run/{id}/status`. Both servers run live during this session (`localhost:8000` backend, `localhost:5500` static frontend). |
 | **2 — UI skeleton** | Agent org-chart + narration ticker + evidence stream | ✅ **Done**, as part of the static console (not a separate React skeleton — see §4 revision). |
-| **3 — Hero visuals** | Attack-reconstruction graph + artifacts board + APT-stage view + view switcher | ✅ **Done** for the sample-recording/replay path. ❌ **Not done:** campaign mode (multi-host stitching for live runs — see §8) and graph layout hints (`graphOp`) for live runs, since `observability.py` doesn't emit them yet. |
+| **3 — Hero visuals** | Attack-reconstruction graph + artifacts board + APT-stage view + view switcher | ✅ **Done**, including live runs — `graph_assembly.py` (§9) now assembles a grounded `graphOp` at end-of-run for both replay AND real live investigations (verified on real S1 telemetry, not just the sample recording). Reconstruction graph has its own zoom (scroll + buttons), drag-to-pan, and content-aware auto-fit, and fills its full panel (was previously capped to a small 640×380 preview). ❌ **Not done:** campaign mode (multi-host live stitching — see §8). |
 | **4 — Replay** | Replay player + bundled recordings | ✅ Player done and tested. Only **1** bundled recording so far (`sample_apt_campaign.json`) — plan said 2–3; add more once real scenario runs are available. |
 | **5 — Presentation polish** | Plain-English mode, "runs locally" badge, metrics footer, reset, theming | ✅ Badge, metrics footer, light/dark theming, reset-to-setup all done. ❌ Not done: fullscreen/kiosk mode (lower priority now — see §1, this is a guided institutional demo, not unattended). |
 
@@ -220,10 +246,17 @@ metrics · run_complete
       host 2 with the pivot as the lead → merge both runs' events into one
       `run_id`/stream/graph. Today, live runs are single-host only; the two-host
       story only exists in the sample recording.
-- [x] ~~**`graphOp` for live runs**~~ **SUPERSEDED by §9 (agreed 2026-07-27).** The
-      live reconstruction graph is no longer built from per-event `graphOp` layout
-      hints. It is materialized at end-of-run from a captured evidence store
-      (grounded KG), with layout computed client-side. See §9 for the full design.
+- [ ] **Phase 2 — bounded LLM edge-labeling / track-assignment pass** (§9.3's
+      "optional later" item) — now the active next task. May only relabel or
+      reposition nodes/edges the deterministic KG already established; must never
+      introduce a node or edge the store has no evidence for, and must be a
+      separate flag-gated call that never touches `call_eval`'s prompt/schema
+      (which feeds precision/recall/F1 and must stay flag-OFF-byte-identical).
+- [x] ~~**`graphOp` for live runs**~~ **SUPERSEDED by §9 (agreed 2026-07-27),
+      then BUILT and verified on real S1 telemetry.** The live reconstruction
+      graph is materialized at end-of-run from captured evidence (grounded KG),
+      with layout computed deterministically server-side and rendered/zoomed/panned
+      client-side. See §9 for the design and §10 for verification notes.
 - [ ] Which specific M-scenario is the "hero" (need one with a clean, legible
       lateral-movement chain) — blocked on obtaining M1–M6 scenario DBs (not on
       this dev machine; presumably on the DGX or external storage).
@@ -237,7 +270,7 @@ metrics · run_complete
       machine — built a static console instead (see §4). Not abandoned, just
       deferred to whenever a Node-capable machine is available.
 
-## 9. Agreed evolution — grounded knowledge graph + two-act center (design locked 2026-07-27, NOT yet built)
+## 9. Agreed evolution — grounded knowledge graph + two-act center (design locked 2026-07-27; first-cut scope §9.9 BUILT + verified — see §10)
 
 This section supersedes the earlier "graphOp for live runs" gap (§8). It is the
 agreed architecture for making the reconstruction graph real (and grounded) on
@@ -270,7 +303,7 @@ the tool layer.
 3. **Grounding verification** (only possible in batch, over the *complete* store):
    cross-check every eval-committed finding against captured evidence; **drop or
    flag any node the Chief claimed that no actual query returned.** This is the
-   Gap-7 check and it's the strongest form of grounding.
+   strongest form of grounding available to us.
 4. **Render** = eval-committed nodes (clean, denoised) + edges looked up in the KG
    (grounded — an edge shows only if the store has evidence for it). Layout is
    **client-side deterministic** (layered by kill-chain stage or force-directed);
@@ -339,12 +372,25 @@ on screen must reflect something the investigation actually observed. Carrying
 render a claim the data doesn't support. The pitch is "watch it reconstruct the
 attack — and every claim traces to real evidence, not a guess."
 
-### 9.9 First-cut build scope (agreed)
-Observer KG only (A, not B) · deterministic/grounded edges only (defer the bounded
-LLM edge-labeling pass) · capture-live + assemble-at-end + animated reveal (defer
-true incremental live-tracking) · in-memory KG + JSONL log · Pydantic Node/Edge with
-provenance · three-tab center with auto-default. Everything deferred layers on top
-without rework.
+### 9.9 First-cut build scope (agreed) — status per item, see §10 for verification
+- ✅ Observer KG only (A, not B) — `graph_assembly.py` is a pure read of captured
+  evidence; agent behavior is unaffected (flag-gated as usual).
+- ✅ Deterministic/grounded edges only — enforced by construction (`add_edge`
+  requires both endpoints already committed), not by a later filter.
+- ✅ Capture-live + assemble-at-end — built and verified on real telemetry.
+- ⚠️ **Deviates from plan:** evidence capture is the existing **in-memory
+  per-run event log** (`observability.get_log`/`_event_log`), not a JSONL file
+  on disk. Serves end-of-run assembly fine; the time-series/audit-trail framing
+  in §9.2/§9.7 is not yet realized as durable storage.
+- ⚠️ **Deviates from plan:** nodes/edges are plain dicts, not Pydantic models.
+  Grounding is enforced by the assembly code's control flow (see above), not by
+  schema validation — works today, but §9.7's "ungrounded edge won't validate"
+  guarantee is not literally in place.
+- ✅ Three-tab center with auto-default, plus zoom/pan/auto-fit on the
+  reconstruction graph (not in the original plan, added in response to the
+  graph looking lost/uneditable at both small and large scales).
+- **Deferred, as planned:** the bounded LLM edge-labeling/track-assignment pass
+  (now the active next task — see §8) and true incremental live-tracking.
 
 ## 10. Status Log
 - **2026-07-27** — Plan approved. Branch `demo/live-observatory` created off
@@ -404,3 +450,42 @@ without rework.
   pushed (`cd0d6f5`, `07cfbf2`, `ca03f55`, and earlier).
   **Next: implement §9** — Pydantic Node/Edge + evidence capture hooks + end-of-run
   KG assembler + verification + the three-tab center + live agent-topology view.
+- **2026-07-28 (§9 first-cut build)** — Implemented and verified the grounded KG
+  end-to-end (see §9.9 for exact scope/deviations): durable per-run event log
+  (`observability.get_log`), richer `sql_result` detail (`col_names`/`table`) so
+  edges can be derived, a pivot-line parser in `chief_inspector.py`, and the new
+  `artifact/graph_assembly.py` (nodes from the Chief's final eval JSON only, edges
+  grounded-by-construction, layered-DAG layout matching the frontend's node-size
+  constants exactly). Wired synchronously into `ClouseauRun` before `end_run()` —
+  no backend changes needed. **Verified against real data, not just structurally**:
+  drove the real `qa_agent.run_sql_query` hook against the real ATLAS S1 scenario
+  DB, captured the actual resulting event log as
+  `demo/recordings/live_s1_verification.json` (routine Firefox captive-portal
+  traffic, explicitly not a claimed attack finding — an engineering verification
+  recording). Confirmed the negative case too: a row referencing an id with no
+  committed node contributes no edge.
+- **2026-07-29 (reconstruction-graph zoom/pan + bug fixes)** — Added zoom
+  (scroll wheel + buttons), drag-to-pan, and content-aware auto-fit to the
+  reconstruction graph, in response to feedback that a small graph looked lost
+  in the fixed canvas and a large one would have no way to explore. Found and
+  fixed three real bugs during that work, each verified against actual behavior
+  rather than assumed fixed: (1) scroll-wheel zoom was anchored to the cursor
+  position, so scrolling while hovering off-center pushed other nodes past the
+  edge — switched to view-center anchoring, matching the +/- buttons; (2) the
+  auto-fit "don't zoom in past default" safeguard compared fitted width against
+  the *full* 1500-wide canvas, which is wider than almost any real graph, so it
+  fired on nearly every run and silently canceled the fit — now reuses the
+  existing manual-zoom floor instead, confirmed by hand-computing the real S1
+  graph's fit (984×407, ~88% of panel width, vs. the old behavior's ~0%); (3)
+  `#recon-svg` was capped at `max-width:640px/max-height:380px` (a leftover from
+  when it was a small teaser preview), so even a correctly-fitted graph rendered
+  small in a mostly-empty panel — removed the cap so it fills the panel exactly
+  like the Agents view already did. Also fixed the "Technical evidence" toggle,
+  which flipped its own switch but never actually revealed the SQL panel — the
+  click handler was toggling `.on` on the wrong element (the section wrapper
+  instead of the `.panel-body` the CSS selector checks). All fixes ported to
+  both the real console (`demo/frontend/index.html`) and the design-review
+  Artifact prototype, and committed to `demo/live-observatory`.
+  **Next: Phase 2** — the bounded LLM edge-labeling/track-assignment pass
+  (§8, §9.3, §9.9), the one piece of §9's design intentionally deferred from
+  the first cut.
