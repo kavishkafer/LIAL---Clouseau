@@ -540,3 +540,55 @@ attack — and every claim traces to real evidence, not a guess."
   the demo's "100% local inference" claim generally) and would be the
   natural next step to close that gap, the same way the S1 recording script
   closed the equivalent gap for Phase 1.
+- **2026-07-29 (Phase 2 audit + fixes)** — Audited the just-pushed Phase 2
+  work and found **two genuine defects the mocked test had missed, plus three
+  operational risks**. Recorded here because the root cause is instructive:
+  the original test asserted on *data structures only* and never on
+  **geometry**, so it green-lit an edge that would have rendered visibly
+  broken.
+  1. **Enriched edges rendered backwards.** `_assign_positions` derives x
+     purely from layer, and layering ran over deterministic edges only, so
+     positions were frozen before enrichment. Verified against the real S1
+     coordinates: **4 of 4** plausible enriched edges drew right-to-left,
+     *inside* the horizontal extent of both node boxes (the exact edge the
+     original happy-path test "passed" had span **−109px**). Fixed by
+     re-running layout with the enriched edges included and emitting a
+     COMPLETE replacement graph (new `{'op':'reset'}` op, then every node at
+     its recomputed position, then every edge) instead of appending edges
+     onto frozen positions. Since `_layer_nodes` guarantees
+     `layer[to] >= layer[from]+1` for acyclic sets, every edge is then
+     forward *by construction*; `_accept_edges_preserving_layout` adds
+     proposals one at a time and drops any that would close a cycle, so one
+     bad proposal can't disqualify the good ones beside it.
+  2. **The duplicate gate was directional.** Deterministic `proc→ip`
+     ("connected to") did not block a proposed `ip→proc` ("contacted by") —
+     the same relationship stated backwards, drawn as a second contradictory
+     arrow. Pair matching is now undirected (`frozenset`).
+  3. **The LLM call was in the worst possible place.** The Act 2 reveal
+     (`setView('graph')`) fired on `run_complete`, which sat *after* the
+     enrichment call — so on local hardware the presenter would stare at the
+     Agents tab while a finished graph waited. The reveal now fires on
+     `graph_assembled` instead, decoupling it from the LLM entirely.
+  4. **Unbounded hang risk.** `llm_factory` builds clients with
+     `timeout=600, max_retries=1`, so a stalled endpoint could have held the
+     run open ~20 minutes. Now bounded by a hard 45s wall-clock deadline on a
+     daemon thread (`_call_with_deadline`), which bounds retries too, unlike a
+     client-side timeout.
+  5. **No output caps.** Added `MAX_ENRICHED_EDGES=12` (a chatty model can't
+     draw a hairball) and `MAX_LABEL_CHARS=40` (the frontend's label
+     background is fixed-width).
+  Also noted but *not* code-fixed, because the grounding gate already bounds
+  it: narrations fed to the enrichment prompt carry adversary-controlled data
+  (filenames, domains from the scenario DB), so prompt injection is possible
+  in principle — but the worst case is a misleading *label* between two real
+  nodes, since no node can be fabricated. Worth keeping in mind for a
+  forensics tool; revisit if enrichment is ever given more authority.
+  **Verification rebuilt around the gap that let this through:** the script
+  now has **28 checks** including an explicit GEOMETRY section that replicates
+  the frontend's own `addGraphEdge` path math and asserts zero backwards
+  edges on the actually-emitted graph. Also confirmed the deterministic path
+  is untouched — freshly assembling the real S1 evidence produces output
+  **identical** to the committed `live_s1_verification.json`, and with the
+  flag off `enrich_and_emit` never even touches the LLM object (asserted with
+  a mock that raises if called). Real-model verification remains the one open
+  item (see §8).

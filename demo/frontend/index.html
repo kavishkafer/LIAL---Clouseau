@@ -873,9 +873,17 @@ function addGraphEdge(e) {
   });
 }
 
+function clearGraph() {
+  nodesLayer.innerHTML = ''; edgesLayer.innerHTML = '';
+  Object.keys(gNodes).forEach(k => delete gNodes[k]);
+}
+
 function applyGraphOp(op) {
   const ops = Array.isArray(op) ? op : [op];
   ops.forEach(o => {
+    // 'reset' precedes a complete replacement graph — the enrichment pass
+    // re-runs layout, so nodes can move and must be redrawn, not appended to.
+    if (o.op === 'reset') clearGraph();
     if (o.op === 'addNode') addGraphNode(o.node);
     if (o.op === 'addEdge') addGraphEdge(o.edge);
   });
@@ -1286,11 +1294,14 @@ function processEvent(ev) {
   if (ev.type === 'investigator_summary') markOrgDone(ev.agent_id);
   if (ev.type === 'metrics') showFinalMetrics(ev.detail);
   updateGraphPlaceholder();
+  // Act 2 reveal fires as soon as the graph itself lands, NOT on run_complete.
+  // The optional enrichment pass sits between the two and can take tens of
+  // seconds on local hardware; gating the reveal on run_complete would leave
+  // the presenter staring at the Agents tab while a finished graph waits.
+  if (ev.type === 'graph_assembled' && !userPinnedView) setView('graph');
   if (ev.type === 'run_complete') {
     onStreamComplete();
     showGraphAssembling();
-    // Act 2 reveal: auto-advance to the reconstruction graph on completion,
-    // unless the presenter manually pinned a tab during the run.
     if (!userPinnedView) setView('graph');
   }
   if (ev.poi) document.getElementById('poi-value').textContent = ev.poi;
@@ -1311,8 +1322,7 @@ const state = {
 
 function resetConsole() {
   ticker.innerHTML = ''; evidenceBody.innerHTML = ''; artifactsBody.innerHTML = '';
-  nodesLayer.innerHTML = ''; edgesLayer.innerHTML = '';
-  Object.keys(gNodes).forEach(k => delete gNodes[k]);
+  clearGraph();
   reconUserAdjustedView = false; reconVB = { ...RECON_VB_DEFAULT }; applyReconViewBox();
   orgBody.innerHTML = ''; Object.keys(orgNodes).forEach(k => delete orgNodes[k]);
   Object.keys(perAgentLog).forEach(k => delete perAgentLog[k]);

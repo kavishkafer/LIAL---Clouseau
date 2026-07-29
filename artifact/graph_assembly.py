@@ -32,13 +32,20 @@ committed, to catch relationships the mechanical row-shape matcher misses. It
 can never introduce a node, and never rewrites a deterministic edge's label —
 every proposal is validated against the same grounding predicate the
 deterministic path uses before it's accepted. Failure of any kind (disabled
-flag, no LLM configured, malformed output, timeout) means this pass
+flag, no LLM configured, malformed output, deadline blown) means this pass
 contributes nothing; the deterministic graph from assemble_and_emit() always
 stands on its own.
+
+Because x positions derive purely from layer, enrichment re-runs the layout
+with the new edges included and emits a COMPLETE replacement graph (a 'reset'
+op, then every node at its recomputed position, then every edge) rather than
+appending edges onto frozen positions — appending is what made enriched edges
+render backwards through the node boxes.
 """
 import json
 import os
 import re
+import threading
 from typing import Dict, List, Optional
 
 from langchain_core.messages import HumanMessage
@@ -267,10 +274,59 @@ def assemble_and_emit(run_id: str, host_labels: Optional[List[str]], eval_json_b
 # ============================================================================
 
 _ENRICHMENT_NARRATION_TYPES = {'artifact_found', 'pivot_found', 'investigator_summary'}
+MAX_ENRICHED_EDGES = 12   # a chatty model shouldn't be able to draw a hairball
+MAX_LABEL_CHARS = 40      # the frontend's label background is fixed-width
+# Hard wall-clock bound on the enrichment call. llm_factory builds clients with
+# timeout=600/max_retries=1, so without this a stalled endpoint could hold the
+# run open for ~20 minutes — unacceptable at a live booth. Enforced with a
+# daemon thread rather than a client-side timeout so it bounds retries too.
+ENRICH_DEADLINE_S = 45
 
 
 def _llm_enrichment_enabled() -> bool:
     return os.environ.get('CLOUSEAU_GRAPH_LLM') == '1'
+
+
+def _call_with_deadline(fn, timeout_s: float):
+    """Runs fn() on a daemon thread, giving up after timeout_s. Returns None on
+    timeout (the abandoned thread can't block interpreter exit). Re-raises
+    whatever fn raised, so the caller's except-branch still sees real errors."""
+    box: dict = {}
+
+    def target():
+        try:
+            box['value'] = fn()
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the caller's thread
+            box['error'] = exc
+
+    t = threading.Thread(target=target, daemon=True)
+    t.start()
+    t.join(timeout_s)
+    if t.is_alive():
+        return None
+    if 'error' in box:
+        raise box['error']
+    return box.get('value')
+
+
+def _accept_edges_preserving_layout(nodes: Dict[str, dict], base_edges: List[dict],
+                                     candidates: List[dict]) -> List[dict]:
+    """Keeps only candidate edges that leave EVERY edge pointing forward
+    (layer[to] > layer[from]) after re-layering.
+
+    This is the fix for enriched edges rendering backwards: _assign_positions
+    derives x purely from layer, so an edge is drawn left-to-right iff its
+    target sits in a strictly later layer. _layer_nodes guarantees that for
+    acyclic edge sets, so the only way to get a backwards edge is a candidate
+    that closes a cycle — which this rejects. Added one at a time so a single
+    bad proposal can't disqualify the good ones alongside it."""
+    accepted: List[dict] = []
+    for cand in candidates:
+        trial = base_edges + accepted + [cand]
+        layer = _layer_nodes(nodes, trial)
+        if all(layer.get(e['to'], 0) > layer.get(e['from'], 0) for e in trial):
+            accepted.append(cand)
+    return accepted
 
 
 def _build_enrichment_prompt(nodes: Dict[str, dict], existing_edges: List[dict],
@@ -310,11 +366,17 @@ def _propose_edges_with_llm(nodes: Dict[str, dict], existing_edges: List[dict],
     response_format — but with a much smaller max_tokens, since the expected
     output is a short edge list, not a report."""
     messages = [HumanMessage(content=_build_enrichment_prompt(nodes, existing_edges, narrations))]
-    try:
-        json_model = llm.bind(response_format={"type": "json_object"})
-        response = json_model.invoke(messages, max_tokens=512)
-    except Exception:
-        response = llm.invoke(messages, max_tokens=512)
+
+    def _invoke():
+        try:
+            json_model = llm.bind(response_format={"type": "json_object"})
+            return json_model.invoke(messages, max_tokens=512)
+        except Exception:
+            return llm.invoke(messages, max_tokens=512)
+
+    response = _call_with_deadline(_invoke, ENRICH_DEADLINE_S)
+    if response is None:  # deadline blown — contribute nothing, don't stall the run
+        return []
 
     text = response.content if isinstance(response.content, str) else ''
     text = text.strip()
@@ -332,23 +394,29 @@ def _propose_edges_with_llm(nodes: Dict[str, dict], existing_edges: List[dict],
 
     # Grounding gate — defense in depth, never trust the prompt instruction
     # alone: same (src in nodes and dst in nodes and src != dst) predicate
-    # _derive_edges' add_edge helper already uses. Also drop anything
-    # duplicating an already-established (from, to) pair, regardless of the
-    # LLM's proposed label — this pass adds edges, it doesn't relabel them.
-    existing_pairs = {(e['from'], e['to']) for e in existing_edges}
-    seen_pairs = set(existing_pairs)
+    # _derive_edges' add_edge helper already uses. Pair matching is
+    # UNDIRECTED: if the deterministic pass already established proc->ip
+    # ("connected to"), a proposed ip->proc ("contacted by") is the same
+    # relationship stated backwards, and drawing both renders as two
+    # contradictory arrows between the same pair.
+    seen_pairs = {frozenset((e['from'], e['to'])) for e in existing_edges}
     accepted: List[dict] = []
     for i, e in enumerate(raw_edges):
+        if len(accepted) >= MAX_ENRICHED_EDGES:
+            break
         if not isinstance(e, dict):
             continue
         src, dst, label = e.get('from'), e.get('to'), e.get('label')
         if src not in nodes or dst not in nodes or src == dst:
             continue
-        pair = (src, dst)
+        pair = frozenset((src, dst))
         if pair in seen_pairs:
             continue
         seen_pairs.add(pair)
-        accepted.append({'id': f'ellm{i}', 'from': src, 'to': dst, 'label': str(label or 'related to')})
+        label_text = str(label or 'related to').replace('\n', ' ').strip()
+        if len(label_text) > MAX_LABEL_CHARS:
+            label_text = label_text[:MAX_LABEL_CHARS - 1].rstrip() + '…'
+        accepted.append({'id': f'ellm{i}', 'from': src, 'to': dst, 'label': label_text})
     return accepted
 
 
@@ -375,15 +443,45 @@ def enrich_and_emit(run_id: str, host_labels: Optional[List[str]],
         narrations = [e.get('narration') for e in captured_events
                       if e.get('type') in _ENRICHMENT_NARRATION_TYPES and e.get('narration')]
 
-        new_edges = _propose_edges_with_llm(nodes, existing_edges, narrations, llm)
+        proposed = _propose_edges_with_llm(nodes, existing_edges, narrations, llm)
+        if not proposed:
+            return
+        # Only keep proposals that still lay out cleanly (see the helper) —
+        # positions derive from layer, so a cycle-closing edge would render
+        # backwards, through the node boxes.
+        new_edges = _accept_edges_preserving_layout(nodes, existing_edges, proposed)
+        if not new_edges:
+            return
+
+        # Re-layer with the enriched edges included. The deterministic layout
+        # only knew about deterministic edges, so nodes an enriched edge points
+        # at may need to move right to make room. That means this emits a
+        # COMPLETE replacement graph (reset + every node at its new position +
+        # every edge), not just the new edges — patching frozen positions is
+        # what produced backwards edges in the first place.
+        all_edges = existing_edges + new_edges
+        layer = _layer_nodes(nodes, all_edges)
+        _assign_positions(nodes, layer)
     except Exception:
         return
-    if not new_edges:
-        return
 
-    ops = [{'op': 'addEdge', 'edge': {**e, 'llm': True}} for e in new_edges]
+    enriched_ids = {e['id'] for e in new_edges}
+    ops: List[dict] = [{'op': 'reset'}]
+    for n in nodes.values():
+        node_op = {'id': n['id'], 'label': n['label'], 'kind': n['kind'], 'x': n['x'], 'y': n['y']}
+        if n.get('status'):
+            node_op['status'] = n['status']
+        ops.append({'op': 'addNode', 'node': node_op})
+    for e in all_edges:
+        edge_op = {'id': e['id'], 'from': e['from'], 'to': e['to'], 'label': e['label']}
+        if e.get('pivot'):
+            edge_op['pivot'] = True
+        if e['id'] in enriched_ids:
+            edge_op['llm'] = True
+        ops.append({'op': 'addEdge', 'edge': edge_op})
+
     observability.emit(
         run_id, 'graph_enriched', role='system', agent_id='system',
         narration=f"Attack graph enriched: {len(new_edges)} additional relationship(s) inferred from context.",
-        detail={'edge_count': len(new_edges)}, graph_op=ops,
+        detail={'edge_count': len(new_edges), 'total_edges': len(all_edges)}, graph_op=ops,
     )
