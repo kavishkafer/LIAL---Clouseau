@@ -768,7 +768,7 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;'
 
 document.getElementById('evidence-switch').addEventListener('click', function () {
   this.classList.toggle('on');
-  evidenceBody.parentElement.classList.toggle('on');
+  evidenceBody.classList.toggle('on');
 });
 
 /* ---------------- artifacts board ---------------- */
