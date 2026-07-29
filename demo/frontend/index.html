@@ -315,6 +315,17 @@
     transition: max-width .3s cubic-bezier(.16, 1, .3, 1), max-height .3s cubic-bezier(.16, 1, .3, 1);
   }
   #hero.expanded #recon-svg { max-width: none; max-height: none; }
+  #recon-svg { cursor: grab; user-select: none; }
+  #recon-svg:active { cursor: grabbing; }
+  .graph-zoom-controls {
+    position: absolute; bottom: 12px; right: 16px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .graph-zoom-controls button {
+    display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+    border-radius: 6px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--ink-2);
+    cursor: pointer; font-size: 14px; line-height: 1; transition: background .15s ease, color .15s ease;
+  }
+  .graph-zoom-controls button:hover { background: var(--border); color: var(--ink-1); }
   /* Mid-run empty state: the reconstruction graph has nothing to draw until
      the investigation finishes and evidence is assembled — say so honestly
      rather than showing a blank panel (or a spinner implying "any second",
@@ -589,6 +600,11 @@
           <div class="graph-placeholder-title" id="gp-title">Attack graph assembles when the investigation completes</div>
           <div class="graph-placeholder-sub">Evidence collected so far: <b id="gp-artifacts">0</b> artifacts · <b id="gp-queries">0</b> queries</div>
         </div>
+        <div class="graph-zoom-controls">
+          <button id="gz-in" title="Zoom in">+</button>
+          <button id="gz-out" title="Zoom out">−</button>
+          <button id="gz-reset" title="Reset view">⤾</button>
+        </div>
       </div>
       <div id="aptview">
         <div class="stage-track" id="stage-track"></div>
@@ -831,6 +847,7 @@ function addGraphNode(n) {
   nodesLayer.appendChild(g);
   gNodes[n.id] = { el: g, x, y, w, h };
   requestAnimationFrame(() => g.classList.add('show'));
+  if (!reconUserAdjustedView) reconAutoFit();
 }
 
 function addGraphEdge(e) {
@@ -862,6 +879,138 @@ function applyGraphOp(op) {
     if (o.op === 'addEdge') addGraphEdge(o.edge);
   });
 }
+
+/* ---------------- reconstruction graph: zoom / pan / auto-fit ---------------- */
+const reconSvg = document.getElementById('recon-svg');
+const RECON_VB_DEFAULT = { x: 0, y: 0, w: 1500, h: 620 };
+const RECON_PAD = 60; // world units of breathing room around content bounds
+let reconVB = { ...RECON_VB_DEFAULT };
+let reconUserAdjustedView = false;
+let reconDragging = false;
+let reconDragStart = null; // {clientX, clientY}
+let reconVBStart = null;   // {x, y} at drag start
+
+function applyReconViewBox() {
+  reconSvg.setAttribute('viewBox', `${reconVB.x} ${reconVB.y} ${reconVB.w} ${reconVB.h}`);
+}
+
+function reconComputeContentBounds() {
+  const ids = Object.keys(gNodes);
+  if (ids.length === 0) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  ids.forEach(id => {
+    const n = gNodes[id];
+    minX = Math.min(minX, n.x - n.w / 2);
+    maxX = Math.max(maxX, n.x + n.w / 2);
+    minY = Math.min(minY, n.y - n.h / 2);
+    maxY = Math.max(maxY, n.y + n.h / 2);
+  });
+  return { minX, minY, maxX, maxY };
+}
+
+function reconAutoFit() {
+  const b = reconComputeContentBounds();
+  if (!b) {
+    reconVB = { ...RECON_VB_DEFAULT };
+    applyReconViewBox();
+    return;
+  }
+  let x = b.minX - RECON_PAD, y = b.minY - RECON_PAD;
+  let w = (b.maxX - b.minX) + RECON_PAD * 2, h = (b.maxY - b.minY) + RECON_PAD * 2;
+  // Keep the default aspect ratio so nodes never look stretched -- expand
+  // the shorter axis rather than distorting either one.
+  const targetAspect = RECON_VB_DEFAULT.w / RECON_VB_DEFAULT.h;
+  const curAspect = w / h;
+  if (curAspect > targetAspect) {
+    const newH = w / targetAspect;
+    y -= (newH - h) / 2;
+    h = newH;
+  } else {
+    const newW = h * targetAspect;
+    x -= (newW - w) / 2;
+    w = newW;
+  }
+  // Never zoom in past the default scale for a sparse graph -- a couple of
+  // nodes should sit comfortably inside the full canvas, not fill it edge to edge.
+  if (w < RECON_VB_DEFAULT.w) {
+    const cx = x + w / 2, cy = y + h / 2;
+    w = RECON_VB_DEFAULT.w; h = RECON_VB_DEFAULT.h;
+    x = cx - w / 2; y = cy - h / 2;
+  }
+  reconVB = { x, y, w, h };
+  applyReconViewBox();
+}
+
+function reconClampScale(w, h) {
+  const minW = RECON_VB_DEFAULT.w * 0.15;
+  const maxW = RECON_VB_DEFAULT.w * 4;
+  if (w < minW) { const s = minW / w; w *= s; h *= s; }
+  if (w > maxW) { const s = maxW / w; w *= s; h *= s; }
+  return { w, h };
+}
+
+function reconClientToWorld(clientX, clientY) {
+  const rect = reconSvg.getBoundingClientRect();
+  const fracX = (clientX - rect.left) / rect.width;
+  const fracY = (clientY - rect.top) / rect.height;
+  return { x: reconVB.x + fracX * reconVB.w, y: reconVB.y + fracY * reconVB.h };
+}
+
+function reconZoomAt(factor, clientX, clientY) {
+  const before = reconClientToWorld(clientX, clientY);
+  const scaled = reconClampScale(reconVB.w * factor, reconVB.h * factor);
+  reconVB.w = scaled.w; reconVB.h = scaled.h;
+  const after = reconClientToWorld(clientX, clientY);
+  reconVB.x += before.x - after.x;
+  reconVB.y += before.y - after.y;
+  applyReconViewBox();
+}
+
+function reconZoomCenter(factor) {
+  const rect = reconSvg.getBoundingClientRect();
+  reconZoomAt(factor, rect.left + rect.width / 2, rect.top + rect.height / 2);
+}
+
+reconSvg.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  reconUserAdjustedView = true;
+  reconZoomAt(e.deltaY > 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY);
+}, { passive: false });
+
+reconSvg.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  reconDragging = true;
+  reconUserAdjustedView = true;
+  reconDragStart = { clientX: e.clientX, clientY: e.clientY };
+  reconVBStart = { x: reconVB.x, y: reconVB.y };
+});
+window.addEventListener('mousemove', (e) => {
+  if (!reconDragging) return;
+  const rect = reconSvg.getBoundingClientRect();
+  const dxWorld = (e.clientX - reconDragStart.clientX) / rect.width * reconVB.w;
+  const dyWorld = (e.clientY - reconDragStart.clientY) / rect.height * reconVB.h;
+  reconVB.x = reconVBStart.x - dxWorld;
+  reconVB.y = reconVBStart.y - dyWorld;
+  applyReconViewBox();
+});
+window.addEventListener('mouseup', () => { reconDragging = false; });
+reconSvg.addEventListener('dblclick', () => {
+  reconUserAdjustedView = false;
+  reconAutoFit();
+});
+
+document.getElementById('gz-in').addEventListener('click', () => {
+  reconUserAdjustedView = true;
+  reconZoomCenter(1 / 1.3);
+});
+document.getElementById('gz-out').addEventListener('click', () => {
+  reconUserAdjustedView = true;
+  reconZoomCenter(1.3);
+});
+document.getElementById('gz-reset').addEventListener('click', () => {
+  reconUserAdjustedView = false;
+  reconAutoFit();
+});
 
 /* ---------------- Agents live topology (Act 1) ---------------- */
 const atNodesLayer = document.getElementById('at-nodes');
@@ -1154,6 +1303,7 @@ function resetConsole() {
   ticker.innerHTML = ''; evidenceBody.innerHTML = ''; artifactsBody.innerHTML = '';
   nodesLayer.innerHTML = ''; edgesLayer.innerHTML = '';
   Object.keys(gNodes).forEach(k => delete gNodes[k]);
+  reconUserAdjustedView = false; reconVB = { ...RECON_VB_DEFAULT }; applyReconViewBox();
   orgBody.innerHTML = ''; Object.keys(orgNodes).forEach(k => delete orgNodes[k]);
   Object.keys(perAgentLog).forEach(k => delete perAgentLog[k]);
   Object.values(stageCols).forEach(col => {
