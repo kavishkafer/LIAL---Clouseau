@@ -178,6 +178,11 @@ def _run_investigation(run_id: str, scenario_name: str, poi_type: str, darpa: bo
         result = investigate_optc(llm=llm, configs=configs) if darpa else investigate_atlas(llm=llm, configs=configs)
         _active_runs[run_id]["status"] = "complete"
         _active_runs[run_id]["result"] = result
+        # Save from the durable event log so a recording is written even if no
+        # WebSocket client ever connected (the ws_run handler's own save only
+        # captures what its connection forwarded). Complete by now — the run has
+        # finished, so observability.get_log() holds every event in order.
+        _save_recording(run_id, observability.get_log(run_id))
     except Exception as exc:  # noqa: BLE001 — surface any failure to the UI rather than hang it
         _fail(run_id, str(exc))
 

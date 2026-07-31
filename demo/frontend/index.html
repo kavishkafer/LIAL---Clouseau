@@ -287,6 +287,8 @@
     cursor: pointer; font-size: 14px; line-height: 1; transition: background .15s ease, color .15s ease;
   }
   .expand-btn:hover { background: var(--surface-2); color: var(--ink-1); }
+  .expand-btn:disabled { opacity: .35; cursor: default; }
+  .expand-btn:disabled:hover { background: transparent; color: var(--ink-3); }
 
   /* Expand: position:absolute relative to <body> (not position:fixed relative
      to the true viewport) — an embedding page can apply its own CSS transform
@@ -575,6 +577,7 @@
         <button id="tab-graph">Reconstruction graph</button>
         <button id="tab-apt">APT kill-chain</button>
       </div>
+      <button class="expand-btn" id="btn-download" title="Download report" disabled>⤓</button>
       <button class="expand-btn" id="btn-expand" title="Expand">⤢</button>
     </div>
     <div class="panel-body" style="position:relative;">
@@ -790,6 +793,7 @@ function pushArtifact(ev) {
   const pidTxt = d.pid ? ` #${d.pid}` : '';
   chip.innerHTML = `<span class="kind">${escapeHtml(kindLabel)}</span>${escapeHtml(d.value)}${escapeHtml(pidTxt)}`;
   artifactsBody.appendChild(chip);
+  state.artifacts.push({ type: d.artifact_type, value: d.value, pid: d.pid });
 }
 
 /* ---------------- reconstruction graph (SVG) ---------------- */
@@ -1251,6 +1255,32 @@ function setExpanded(on) {
 expandBtn.addEventListener('click', () => setExpanded(!heroPanel.classList.contains('expanded')));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setExpanded(false); });
 
+/* ---------------- downloadable report ---------------- */
+function downloadReport() {
+  const poi = document.getElementById('poi-value').textContent;
+  const rid = state.currentRunId || 'recording';
+  const lines = [
+    '# Clouseau Investigation Report', '',
+    `**Point of interest:** ${poi}`,
+    `**Run ID:** ${state.currentRunId || 'n/a'}`,
+    `**Generated:** ${new Date().toISOString()}`, '',
+    '## Chief Inspector\'s Report', '',
+    state.finalReportText || '(no narrative captured)', '',
+    '## Artifacts Found', '',
+    ...(state.artifacts.length
+      ? state.artifacts.map(a => `- **${(a.type || '').toUpperCase()}**: ${a.value}${a.pid ? ' #' + a.pid : ''}`)
+      : ['(none recorded)']),
+    '',
+  ];
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `clouseau-report-${rid}.md`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+document.getElementById('btn-download').addEventListener('click', downloadReport);
+
 /* ---------------- metrics footer ---------------- */
 let sqlCount = 0, invSet = new Set();
 function updateRunningMetrics(ev) {
@@ -1292,6 +1322,7 @@ function processEvent(ev) {
     pulseOrgNode(ev.agent_id, ev.role, ev.type.replace(/_/g,' '));
   }
   if (ev.type === 'investigator_summary') markOrgDone(ev.agent_id);
+  if (ev.type === 'final_report') state.finalReportText = ev.detail && ev.detail.report;
   if (ev.type === 'metrics') showFinalMetrics(ev.detail);
   updateGraphPlaceholder();
   // Act 2 reveal fires as soon as the graph itself lands, NOT on run_complete.
@@ -1303,6 +1334,11 @@ function processEvent(ev) {
     onStreamComplete();
     showGraphAssembling();
     if (!userPinnedView) setView('graph');
+    // Narrative, artifacts, and graph have all landed by now (final_report and
+    // artifact_found precede run_complete). Same path fires for live + replay.
+    if (state.finalReportText || state.artifacts.length) {
+      document.getElementById('btn-download').disabled = false;
+    }
   }
   if (ev.poi) document.getElementById('poi-value').textContent = ev.poi;
 }
@@ -1318,10 +1354,15 @@ const state = {
   elapsedMs: 0,
   tickTimer: null,
   connected: false,      // true once the socket has produced at least one message
+  currentRunId: null,    // run_id (live) or recording id (replay) — for the report filename
+  finalReportText: null, // the Chief's narrative from the final_report event
+  artifacts: [],         // structured artifacts, mirrors the chips in artifactsBody
 };
 
 function resetConsole() {
   ticker.innerHTML = ''; evidenceBody.innerHTML = ''; artifactsBody.innerHTML = '';
+  state.finalReportText = null; state.artifacts = [];
+  document.getElementById('btn-download').disabled = true;
   clearGraph();
   reconUserAdjustedView = false; reconVB = { ...RECON_VB_DEFAULT }; applyReconViewBox();
   orgBody.innerHTML = ''; Object.keys(orgNodes).forEach(k => delete orgNodes[k]);
@@ -1472,6 +1513,7 @@ async function connect() {
     const recId = document.getElementById('recording-select').value;
     const speed = document.getElementById('replay-speed').value;
     const opt = document.getElementById('recording-select').selectedOptions[0];
+    state.currentRunId = recId;
     state.expectedTotal = opt ? parseInt(opt.dataset.count, 10) || null : null;
     document.getElementById('mode-badge').className = 'badge replay';
     document.getElementById('mode-badge').innerHTML = '<span class="dot"></span>Recorded run — replay mode';
@@ -1490,6 +1532,7 @@ async function connect() {
       });
       const data = await res.json();
       if (!res.ok) { setSetupStatus(data.detail || 'Could not start run.', true); return; }
+      state.currentRunId = data.run_id;
       document.getElementById('mode-badge').className = 'badge live';
       document.getElementById('mode-badge').innerHTML = '<span class="dot"></span>Live';
       openSocket(wsBase() + '/ws/run/' + data.run_id);
@@ -1528,6 +1571,8 @@ function openSocket(url) {
     if (!state.connected) reopenSetupWithError('Connection error — check the backend URL and that it is running.');
   };
 }
+
+document.getElementById('backend-url').addEventListener('change', loadCatalogs);
 
 btnPlay.disabled = true;
 loadCatalogs();

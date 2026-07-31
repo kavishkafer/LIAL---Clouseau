@@ -67,6 +67,22 @@ def _safe_id(prefix: str, value) -> str:
     return prefix + '_' + re.sub(r'[^A-Za-z0-9]+', '_', str(value)).strip('_')
 
 
+def _file_basename(path: str) -> str:
+    """Windows paths use backslashes; os.path.basename only splits on '/'
+    on this (Linux) host, so it wouldn't shorten them."""
+    return re.split(r'[\\/]+', str(path).rstrip('\\/'))[-1] or str(path)
+
+
+def _truncate_label(text: str, kind: str) -> str:
+    """Keeps a node's label inside the fixed-width box the frontend renders
+    it into (see NODE_W) -- SVG <text> doesn't wrap or clip on its own."""
+    max_chars = max(8, (NODE_W.get(kind, 110) - 16) // 6)
+    text = str(text)
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars - 1].rstrip() + '…'
+
+
 def _extract_nodes(eval_json_text) -> Dict[str, dict]:
     """Parses the same structured report chief_inspector.py's
     _emit_artifacts_from_eval reads, returning {node_id: node_dict} instead of
@@ -90,21 +106,25 @@ def _extract_nodes(eval_json_text) -> Dict[str, dict]:
     nodes: Dict[str, dict] = {}
     for addr in items.get('addresses') or []:
         nid = _safe_id('ip', addr)
-        nodes[nid] = {'id': nid, 'kind': 'ip', 'label': str(addr), 'status': 'critical'}
+        nodes[nid] = {'id': nid, 'kind': 'ip', 'label': _truncate_label(addr, 'ip'), 'status': 'critical'}
     for dom in items.get('domains') or []:
         nid = _safe_id('domain', dom)
-        nodes[nid] = {'id': nid, 'kind': 'domain', 'label': str(dom), 'status': None}
+        nodes[nid] = {'id': nid, 'kind': 'domain', 'label': _truncate_label(dom, 'domain'), 'status': None}
     for f in items.get('files') or []:
         nid = _safe_id('file', f)
-        nodes[nid] = {'id': nid, 'kind': 'file', 'label': str(f), 'status': 'critical'}
+        # Node id keys off the full path (stays unique/stable for edges);
+        # only the on-graph label is shortened to the filename.
+        nodes[nid] = {'id': nid, 'kind': 'file', 'label': _truncate_label(_file_basename(f), 'file'), 'status': 'critical'}
     for proc in items.get('malicious_processes') or []:
         pid, name = proc.get('pid'), proc.get('name', 'unknown')
         nid = _safe_id('proc', pid if pid is not None else name)
+        name = _truncate_label(name, 'process')
         label = f"{name}\nPID {pid}" if pid is not None else name
         nodes[nid] = {'id': nid, 'kind': 'process', 'label': label, 'status': 'critical'}
     for proc in items.get('tainted_processes') or []:
         pid, name = proc.get('pid'), proc.get('name', 'unknown')
         nid = _safe_id('proc', pid if pid is not None else name)
+        name = _truncate_label(name, 'process')
         label = f"{name}\nPID {pid}" if pid is not None else name
         nodes[nid] = {'id': nid, 'kind': 'process', 'label': label, 'status': 'serious'}
     return nodes
