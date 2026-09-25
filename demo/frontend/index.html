@@ -7,25 +7,35 @@
 <style>
   /* ============================================================
      DESIGN TOKENS — validated in the standalone prototype artifact.
-     Ground: deep navy-charcoal (not pure black) — SOC/case-file mood.
+     Ground: neutral near-black, matching the TARA logo's ink (#101415).
      Categorical (agent roles, fixed order): blue=Chief, orange=Investigator, aqua=QA
        — the pre-validated "all-pairs" subset from the dataviz reference palette.
-     Brand/chrome accent (violet) is deliberately NOT a categorical hue — chrome only.
+     Brand/chrome accent = the TARA logo red, chrome only. Two tokens because no
+       single red passes both jobs (contrast measured, 4.5:1 target):
+         --brand         text / strokes / highlights  (#ff0a12 on dark = 4.71)
+         --brand-strong  fills that carry white text  (#e5060e = 4.81; #ff0a12 = 3.96 ✗)
+     Red also means "critical" in the status set, so the accent is kept OFF the
+       graph's data marks: lateral-movement edges and host outlines have their own
+       neutral tokens (--pivot, --host), or everything on the graph would read as
+       critical.
      Status (fixed, reserved): critical/serious/warning/good — never reused elsewhere.
      ============================================================ */
   :root {
     color-scheme: light;
-    --page:        #f7f7f5;
+    --page:        #f6f6f6;
     --surface-1:   #ffffff;
-    --surface-2:   #f0f0ee;
-    --border:      rgba(11,11,11,0.10);
-    --border-2:    rgba(11,11,11,0.16);
-    --ink-1:       #0b0b0b;
-    --ink-2:       #52514e;
-    --ink-3:       #898781;
+    --surface-2:   #efefef;
+    --border:      rgba(16,20,21,0.10);
+    --border-2:    rgba(16,20,21,0.16);
+    --ink-1:       #101415;
+    --ink-2:       #4f5355;
+    --ink-3:       #878b8d;
 
-    --brand:       #4a3aa7;
-    --brand-wash:  rgba(74,58,167,0.10);
+    --brand:        #d1050c;
+    --brand-strong: #d1050c;
+    --brand-wash:   rgba(209,5,12,0.08);
+    --pivot:        #101415;
+    --host:         #4f5355;
 
     --role-chief:  #2a78d6;
     --role-invest: #eb6834;
@@ -43,29 +53,32 @@
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) {
       color-scheme: dark;
-      --page: #0b0e14; --surface-1: #12161f; --surface-2: #171c28;
+      --page: #0a0b0c; --surface-1: #111314; --surface-2: #181a1c;
       --border: rgba(255,255,255,0.08); --border-2: rgba(255,255,255,0.14);
-      --ink-1: #e8eaf0; --ink-2: #9aa3b8; --ink-3: #5f6779;
-      --brand: #9085e9; --brand-wash: rgba(144,133,233,0.14);
+      --ink-1: #ececec; --ink-2: #a3a6a9; --ink-3: #6b6f72;
+      --brand: #ff0a12; --brand-strong: #e5060e; --brand-wash: rgba(255,10,18,0.13);
+      --pivot: #ececec; --host: #a3a6a9;
       --role-chief: #3987e5; --role-invest: #d95926; --role-qa: #199e70;
       --st-critical: #e66767; --st-serious: #ec835a; --st-warning: #eda100; --st-good: #2fbf4f;
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --page: #0b0e14; --surface-1: #12161f; --surface-2: #171c28;
+    --page: #0a0b0c; --surface-1: #111314; --surface-2: #181a1c;
     --border: rgba(255,255,255,0.08); --border-2: rgba(255,255,255,0.14);
-    --ink-1: #e8eaf0; --ink-2: #9aa3b8; --ink-3: #5f6779;
-    --brand: #9085e9; --brand-wash: rgba(144,133,233,0.14);
+    --ink-1: #ececec; --ink-2: #a3a6a9; --ink-3: #6b6f72;
+    --brand: #ff0a12; --brand-strong: #e5060e; --brand-wash: rgba(255,10,18,0.13);
+    --pivot: #ececec; --host: #a3a6a9;
     --role-chief: #3987e5; --role-invest: #d95926; --role-qa: #199e70;
     --st-critical: #e66767; --st-serious: #ec835a; --st-warning: #eda100; --st-good: #2fbf4f;
   }
   :root[data-theme="light"] {
     color-scheme: light;
-    --page: #f7f7f5; --surface-1: #ffffff; --surface-2: #f0f0ee;
-    --border: rgba(11,11,11,0.10); --border-2: rgba(11,11,11,0.16);
-    --ink-1: #0b0b0b; --ink-2: #52514e; --ink-3: #898781;
-    --brand: #4a3aa7; --brand-wash: rgba(74,58,167,0.10);
+    --page: #f6f6f6; --surface-1: #ffffff; --surface-2: #efefef;
+    --border: rgba(16,20,21,0.10); --border-2: rgba(16,20,21,0.16);
+    --ink-1: #101415; --ink-2: #4f5355; --ink-3: #878b8d;
+    --brand: #d1050c; --brand-strong: #d1050c; --brand-wash: rgba(209,5,12,0.08);
+    --pivot: #101415; --host: #4f5355;
     --role-chief: #2a78d6; --role-invest: #eb6834; --role-qa: #1baf7a;
     --st-critical: #d03b3b; --st-serious: #ec835a; --st-warning: #b8790a; --st-good: #0ca30c;
   }
@@ -145,12 +158,12 @@
   }
   .transport button:hover { background: var(--border); }
   .transport button:active { transform: scale(.92); }
-  .transport button.primary { background: var(--brand); color: #fff; border-color: transparent; }
+  .transport button.primary { background: var(--brand-strong); color: #fff; border-color: transparent; }
   .transport button:disabled { opacity: 0.35; cursor: not-allowed; }
   .transport .speedgrp { display: flex; border: 1px solid var(--border-2); border-radius: 8px; overflow: hidden; }
   .transport .speedgrp button { width: auto; padding: 0 10px; border: none; border-radius: 0; font-size: 12px; font-weight: 600; }
   .transport .speedgrp button + button { border-left: 1px solid var(--border-2); }
-  .transport .speedgrp button.active { background: var(--brand); color: #fff; }
+  .transport .speedgrp button.active { background: var(--brand-strong); color: #fff; }
   .elapsed { font-family: var(--mono); font-size: 13px; color: var(--ink-2); min-width: 54px; }
 
   .progress-track { flex: 0 0 auto; height: 3px; background: var(--surface-2); position: relative; overflow: hidden; }
@@ -184,7 +197,7 @@
   .modeswitch button.active { background: var(--brand-wash); border-color: var(--brand); color: var(--brand); }
   .setup-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
   .btn-primary {
-    background: var(--brand); color: #fff; border: none; padding: 9px 18px; border-radius: 8px;
+    background: var(--brand-strong); color: #fff; border: none; padding: 9px 18px; border-radius: 8px;
     font-weight: 700; font-size: 13px; cursor: pointer;
   }
   .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -365,7 +378,7 @@
   .g-node.show { opacity: 1; }
   .g-edge path { fill: none; stroke: var(--border-2); stroke-width: 1.6; opacity: 0; transition: opacity .6s; }
   .g-edge path.show { opacity: 1; }
-  .g-edge path.pivot { stroke: var(--brand); stroke-width: 2.4; stroke-dasharray: 5 4; }
+  .g-edge path.pivot { stroke: var(--pivot); stroke-width: 2.4; stroke-dasharray: 5 4; }
   /* Semantic-enrichment edges (Phase 2, CLOUSEAU_GRAPH_LLM=1): distinct from
      both the plain deterministic edges and the brand-colored pivot edges —
      an LLM inferred this relationship rather than a SQL row proving it
@@ -408,7 +421,11 @@
   /* ---------- APT timeline view ---------- */
   #aptview { padding: 26px 22px; overflow-y: auto; }
   .stage-track { display: flex; align-items: flex-start; gap: 0; min-width: 760px; }
-  .stage-col { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; position: relative; padding: 0 6px; }
+  /* min-width:0 is load-bearing: flex items default to min-width:auto, i.e.
+     never narrower than their widest chip, so one long chip (a lateral-movement
+     "HOST-A → HOST-B") pushed all eight columns off-screen and hid the final
+     stage behind a scrollbar. */
+  .stage-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; position: relative; padding: 0 3px; }
   .stage-connector { position: absolute; top: 15px; left: -50%; width: 100%; height: 2px; background: var(--border); z-index: 0; }
   .stage-col:first-child .stage-connector { display: none; }
   .stage-connector.lit { background: var(--brand); }
@@ -417,7 +434,7 @@
     display: flex; align-items: center; justify-content: center; font-family: var(--disp); font-weight: 700; font-size: 12px;
     color: var(--ink-3); z-index: 1; transition: all .4s;
   }
-  .stage-col.lit .stage-dot { background: var(--brand); border-color: var(--brand); color: #fff; box-shadow: 0 0 0 5px var(--brand-wash); }
+  .stage-col.lit .stage-dot { background: var(--brand-strong); border-color: var(--brand-strong); color: #fff; box-shadow: 0 0 0 5px var(--brand-wash); }
   .stage-name {
     font-family: var(--disp); font-size: 11px; font-weight: 700; text-align: center; margin-top: 9px;
     color: var(--ink-3); letter-spacing: .01em; min-height: 28px;
@@ -425,8 +442,14 @@
   .stage-col.lit .stage-name { color: var(--ink-1); }
   .stage-findings { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; align-items: center; width: 100%; }
   .stage-chip {
-    font-size: 10.5px; font-family: var(--mono); padding: 3px 7px; border-radius: 5px; background: var(--surface-2);
-    border: 1px solid var(--border); color: var(--ink-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 9.5px; font-family: var(--mono); padding: 3px 5px; border-radius: 5px; background: var(--surface-2);
+    border: 1px solid var(--border); color: var(--ink-2); max-width: 100%;
+    /* wrap rather than ellipsis: a truncated "CORP-WS-08 → IT-JU…" hides which
+       machine the attacker reached, which is the whole point of the chip */
+    white-space: normal; text-align: center; line-height: 1.35;
+    /* break inside a name ONLY if it can't fit a line on its own — true at
+       ~1366px laptop widths (95px columns), never at 1600px+ (measured) */
+    overflow-wrap: break-word;
     opacity: 0; transform: translateY(-4px); transition: opacity .4s, transform .4s;
   }
   .stage-chip.show { opacity: 1; transform: translateY(0); }
@@ -559,7 +582,7 @@
     <img class="brand-logo logo-light" src="assets/tara-mark.svg" alt="">
     <img class="brand-logo logo-dark" src="assets/tara-mark-dark.svg" alt="">
     <div>
-      <div class="eyebrow">Nimbus Research Centre</div>
+      <div class="eyebrow">Agentic Threat Analysis, Reconstruction &amp; Adaptation</div>
       <h1>TARA <span>Live</span></h1>
     </div>
   </div>
@@ -664,7 +687,7 @@
       <div class="stat"><div class="label">Elapsed</div><div class="value mono" id="m-elapsed">00:00</div></div>
       <div class="stat"><div class="label">SQL queries</div><div class="value mono" id="m-sql">0</div></div>
       <div class="stat"><div class="label">Investigations</div><div class="value mono" id="m-inv">0</div></div>
-      <div class="stat"><div class="label">Tokens used</div><div class="value mono" id="m-tok">0</div></div>
+      <div class="stat"><div class="label">Tokens used</div><div class="value mono" id="m-tok">—</div></div>
       <div class="stat wide" id="m-final" style="display:none;">
         <div class="stat"><div class="label">Precision</div><div class="value mono good" id="m-prec">—</div></div>
         <div class="stat"><div class="label">Recall</div><div class="value mono good" id="m-rec">—</div></div>
@@ -860,7 +883,7 @@ function addGraphNode(n) {
   hideGraphPlaceholder();
   const { x, y } = nodeXY(n);
   const w = NODE_W[n.kind] || 110, h = NODE_H;
-  const statusColor = n.status ? STATUS_COLOR[n.status] : (n.kind === 'host' ? 'var(--brand)' : 'var(--border-2)');
+  const statusColor = n.status ? STATUS_COLOR[n.status] : (n.kind === 'host' ? 'var(--host)' : 'var(--border-2)');
   const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   g.setAttribute('class', 'g-node');
   g.setAttribute('transform', `translate(${x - w/2}, ${y - h/2})`);
@@ -1214,20 +1237,26 @@ function topoSpawnInvestigator(id, host) {
   updateTally();
 }
 function topoSpawnQA(id, host) {
-  if (topo.qa[id]) { topoMarkActive(topo.qa[id]); return; }
   const parentId = topo.curInvByHost[host];
   const parent = topo.inv[parentId];
   if (!parent) return;
-  const specM = metaFor(id).label.match(/\(([^)]+)\)/);
-  const el = atNodeEl('qa', 'QA AGENT', specM ? specM[1] : id.replace(/^qa-/, ''));
-  const edge = atEdge('qa');
-  topo.qa[id] = { el, edge, x: parent.x, y: parent.y, parentId };
-  parent.qaIds.push(id);
-  topo.counts.qa++;
-  if (topo.activeQA && topo.activeQA !== id) topoMarkDone(topo.qa[topo.activeQA]);
-  topo.activeQA = id;
-  topoMarkActive(topo.qa[id]);
-  recomputeLayout();
+  // QA agent ids are per-TABLE ("qa-audit_logs"), so every investigator
+  // reuses the same id. Keying nodes by id alone made the second and third
+  // investigators light up the FIRST investigator's QA node, drawn under the
+  // wrong host. A QA specialist belongs to the investigator that asked it.
+  const key = parentId + '|' + id;
+  if (!topo.qa[key]) {
+    const specM = metaFor(id).label.match(/\(([^)]+)\)/);
+    const el = atNodeEl('qa', 'QA AGENT', specM ? specM[1] : id.replace(/^qa-/, ''));
+    const edge = atEdge('qa');
+    topo.qa[key] = { el, edge, x: parent.x, y: parent.y, parentId };
+    parent.qaIds.push(key);
+    topo.counts.qa++;
+    recomputeLayout();
+  }
+  if (topo.activeQA && topo.activeQA !== key) topoMarkDone(topo.qa[topo.activeQA]);
+  topo.activeQA = key;
+  topoMarkActive(topo.qa[key]);
   updateTally();
 }
 function topoCompleteInvestigator(id) {
@@ -1281,7 +1310,10 @@ function lightStage(stageName, chipText, chipStatus) {
   if (chipText) {
     const chip = document.createElement('div');
     chip.className = 'stage-chip' + (chipStatus ? ' ' + chipStatus : '');
-    chip.textContent = chipText;
+    // Non-breaking hyphens: browsers treat "-" as a line-break opportunity, so
+    // "IT-JUMP-02" split into "IT-" / "JUMP-02". Chips should only wrap at
+    // spaces (e.g. either side of "→"), never inside a name.
+    chip.textContent = chipText.replace(/-/g, '‑');
     col.querySelector('.stage-findings').appendChild(chip);
     requestAnimationFrame(() => chip.classList.add('show'));
   }
@@ -1435,7 +1467,9 @@ function resetConsole() {
   sqlCount = 0; invSet = new Set();
   document.getElementById('m-sql').textContent = '0';
   document.getElementById('m-inv').textContent = '0';
-  document.getElementById('m-tok').textContent = '0';
+  // "—" not "0": the count is unknown until a run reports it, and recordings
+  // never do — showing zero implied nothing ran.
+  document.getElementById('m-tok').textContent = '—';
   document.getElementById('m-final').style.display = 'none';
   document.getElementById('poi-value').textContent = '—';
   document.getElementById('progress-fill').style.width = '0%';
