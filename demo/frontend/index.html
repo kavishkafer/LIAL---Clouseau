@@ -89,12 +89,24 @@
     background: var(--surface-1); flex-wrap: wrap;
   }
   .brandmark { display: flex; align-items: center; gap: 14px; }
-  /* Institutional logo. Loaded from assets/ by relative path; hidden until it
-     actually loads, so the header looks intentional before the file exists. */
-  .brand-logo { height: 34px; width: auto; display: none; }
-  .brandmark.has-logo .brand-logo { display: block; }
-  .brandmark.has-logo .brand-divider { display: block; }
-  .brand-divider { display: none; width: 1px; height: 30px; background: var(--border-2); }
+  /* TARA logo. The source artwork (assets/TARA_Full_logo_vectorised.svg) is
+     drawn for light backgrounds -- on dark, its near-black head, wordmark and
+     tagline vanish. So each use has a dark-theme twin with the dark ink and
+     white cut-outs swapped; the pair is switched with the SAME selectors that
+     switch the colour tokens above, so the logo can never disagree with the
+     page. The header uses the icon alone (the full lockup's tagline would be
+     ~3px tall at header height); the setup screen has room for the full one. */
+  .brand-logo { height: 40px; width: auto; }
+  .setup-logo { width: 100%; max-width: 340px; height: auto; margin: 0 0 10px -4px; }
+  .logo-dark { display: none; }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .logo-light { display: none; }
+    :root:where(:not([data-theme="light"])) .logo-dark { display: block; }
+  }
+  :root[data-theme="dark"] .logo-light { display: none; }
+  :root[data-theme="dark"] .logo-dark { display: block; }
+  :root[data-theme="light"] .logo-light { display: block; }
+  :root[data-theme="light"] .logo-dark { display: none; }
   .brandmark .eyebrow {
     font-family: var(--disp); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--ink-3);
@@ -485,8 +497,9 @@
 
 <div id="setup-overlay">
   <div class="setup-card">
-    <h2>TARA Live</h2>
-    <p class="sub" style="margin-top:-4px;">Traceable Attack Reconstruction &amp; Analysis</p>
+    <img class="setup-logo logo-light" src="assets/TARA_Full_logo_vectorised.svg" alt="TARA — Agentic Threat Analysis, Reconstruction &amp; Adaptation">
+    <img class="setup-logo logo-dark" src="assets/tara-logo-dark.svg" alt="TARA — Agentic Threat Analysis, Reconstruction &amp; Adaptation">
+    <h2>Live investigation console</h2>
     <p class="sub">Connect to a backend to watch an investigation — replay a recorded run, or start a live one against a local model.</p>
 
     <div class="setup-row">
@@ -542,14 +555,11 @@
 </div>
 
 <header class="console-head">
-  <div class="brandmark" id="brandmark">
-    <!-- Drop the institutional logo at demo/frontend/assets/nimbus-logo.svg
-         (or .png). Tries SVG, falls back to PNG, and stays hidden if neither
-         exists — the text eyebrow then carries the Nimbus name instead. -->
-    <img class="brand-logo" id="brand-logo" src="assets/nimbus-logo.svg" alt="Nimbus Research Centre">
-    <span class="brand-divider"></span>
+  <div class="brandmark">
+    <img class="brand-logo logo-light" src="assets/tara-mark.svg" alt="">
+    <img class="brand-logo logo-dark" src="assets/tara-mark-dark.svg" alt="">
     <div>
-      <div class="eyebrow" id="brand-eyebrow">Nimbus Research Centre</div>
+      <div class="eyebrow">Nimbus Research Centre</div>
       <h1>TARA <span>Live</span></h1>
     </div>
   </div>
@@ -666,26 +676,6 @@
 
 <script>
 "use strict";
-
-/* ---------------- institutional logo (optional asset) ---------------- */
-(function initBrandLogo() {
-  const img = document.getElementById('brand-logo');
-  const mark = document.getElementById('brandmark');
-  const eyebrow = document.getElementById('brand-eyebrow');
-  const onLoad = () => {
-    mark.classList.add('has-logo');
-    // The logo now carries the Nimbus name, so the eyebrow can say what TARA is.
-    eyebrow.textContent = 'Traceable Attack Reconstruction & Analysis';
-  };
-  const onError = () => {
-    if (img.src.endsWith('.svg')) img.src = 'assets/nimbus-logo.png';  // then give up quietly
-  };
-  img.addEventListener('load', onLoad);
-  img.addEventListener('error', onError);
-  // This script runs after the <img> in document order, so it may have
-  // settled already — handle both outcomes rather than waiting forever.
-  if (img.complete) (img.naturalWidth > 0 ? onLoad : onError)();
-})();
 
 /* ============================================================
    Fixed schema constant — mirrors artifact/observability.py STAGES.
