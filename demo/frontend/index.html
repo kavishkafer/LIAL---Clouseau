@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Clouseau Live — Investigation Console</title>
+<title>TARA Live — Investigation Console</title>
 <style>
   /* ============================================================
      DESIGN TOKENS — validated in the standalone prototype artifact.
@@ -88,7 +88,13 @@
     padding: 14px 22px; border-bottom: 1px solid var(--border);
     background: var(--surface-1); flex-wrap: wrap;
   }
-  .brandmark { display: flex; align-items: baseline; gap: 10px; }
+  .brandmark { display: flex; align-items: center; gap: 14px; }
+  /* Institutional logo. Loaded from assets/ by relative path; hidden until it
+     actually loads, so the header looks intentional before the file exists. */
+  .brand-logo { height: 34px; width: auto; display: none; }
+  .brandmark.has-logo .brand-logo { display: block; }
+  .brandmark.has-logo .brand-divider { display: block; }
+  .brand-divider { display: none; width: 1px; height: 30px; background: var(--border-2); }
   .brandmark .eyebrow {
     font-family: var(--disp); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--ink-3);
@@ -479,7 +485,8 @@
 
 <div id="setup-overlay">
   <div class="setup-card">
-    <h2>Clouseau Live</h2>
+    <h2>TARA Live</h2>
+    <p class="sub" style="margin-top:-4px;">Traceable Attack Reconstruction &amp; Analysis</p>
     <p class="sub">Connect to a backend to watch an investigation — replay a recorded run, or start a live one against a local model.</p>
 
     <div class="setup-row">
@@ -535,10 +542,15 @@
 </div>
 
 <header class="console-head">
-  <div class="brandmark">
+  <div class="brandmark" id="brandmark">
+    <!-- Drop the institutional logo at demo/frontend/assets/nimbus-logo.svg
+         (or .png). Tries SVG, falls back to PNG, and stays hidden if neither
+         exists — the text eyebrow then carries the Nimbus name instead. -->
+    <img class="brand-logo" id="brand-logo" src="assets/nimbus-logo.svg" alt="Nimbus Research Centre">
+    <span class="brand-divider"></span>
     <div>
-      <div class="eyebrow">Nimbus Research Centre</div>
-      <h1>Clouseau <span>Live</span></h1>
+      <div class="eyebrow" id="brand-eyebrow">Nimbus Research Centre</div>
+      <h1>TARA <span>Live</span></h1>
     </div>
   </div>
   <div class="poi-pill">Point of interest <b id="poi-value">—</b></div>
@@ -654,6 +666,26 @@
 
 <script>
 "use strict";
+
+/* ---------------- institutional logo (optional asset) ---------------- */
+(function initBrandLogo() {
+  const img = document.getElementById('brand-logo');
+  const mark = document.getElementById('brandmark');
+  const eyebrow = document.getElementById('brand-eyebrow');
+  const onLoad = () => {
+    mark.classList.add('has-logo');
+    // The logo now carries the Nimbus name, so the eyebrow can say what TARA is.
+    eyebrow.textContent = 'Traceable Attack Reconstruction & Analysis';
+  };
+  const onError = () => {
+    if (img.src.endsWith('.svg')) img.src = 'assets/nimbus-logo.png';  // then give up quietly
+  };
+  img.addEventListener('load', onLoad);
+  img.addEventListener('error', onError);
+  // This script runs after the <img> in document order, so it may have
+  // settled already — handle both outcomes rather than waiting forever.
+  if (img.complete) (img.naturalWidth > 0 ? onLoad : onError)();
+})();
 
 /* ============================================================
    Fixed schema constant — mirrors artifact/observability.py STAGES.
@@ -1298,7 +1330,7 @@ function downloadReport() {
   const poi = document.getElementById('poi-value').textContent;
   const rid = state.currentRunId || 'recording';
   const lines = [
-    '# Clouseau Investigation Report', '',
+    '# TARA Investigation Report', '',
     `**Point of interest:** ${poi}`,
     `**Run ID:** ${state.currentRunId || 'n/a'}`,
     `**Generated:** ${new Date().toISOString()}`, '',
@@ -1313,7 +1345,7 @@ function downloadReport() {
   const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `clouseau-report-${rid}.md`;
+  a.download = `tara-report-${rid}.md`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
