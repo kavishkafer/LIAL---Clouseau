@@ -19,6 +19,7 @@ Local demo tool only — CORS is wide open and this is never meant to be
 deployed publicly.
 """
 import asyncio
+import datetime
 import json
 import os
 import sys
@@ -190,7 +191,8 @@ def _run_investigation(run_id: str, scenario_name: str, poi_type: str, darpa: bo
 @app.post("/run")
 def start_run(req: RunRequest):
     run_id = observability.new_run_id()
-    _active_runs[run_id] = {"status": "queued", "error": None, "result": None}
+    _active_runs[run_id] = {"status": "queued", "error": None, "result": None,
+                            "scenario": req.scenario_name, "poi_type": req.poi_type}
     thread = threading.Thread(
         target=_run_investigation,
         args=(run_id, req.scenario_name, req.poi_type, req.darpa, req.host_label),
@@ -216,10 +218,21 @@ def _save_recording(run_id: str, events: list) -> None:
         return
     RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
     poi = events[0].get("detail", {}).get("poi", "")
+    # Title must distinguish runs from each other. The POI text alone does not:
+    # every s1/IP run carries the same alert string, so N runs of one scenario
+    # were indistinguishable in the picker. Scenario + POI type + start time do.
+    info = _active_runs.get(run_id, {})
+    scenario = info.get("scenario") or (events[0].get("detail", {}).get("hosts") or [""])[0]
+    poi_type = info.get("poi_type") or ""
+    started = events[0].get("ts")
+    when = (datetime.datetime.fromtimestamp(started).strftime("%d %b %H:%M")
+            if isinstance(started, (int, float)) else "")
+    label = " · ".join(x for x in (scenario, poi_type, when) if x)
     recording = {
         "recording_id": run_id,
-        "title": f"Live run — {poi or run_id}",
-        "description": "Auto-recorded from a live investigation.",
+        "title": f"Live run — {label}" if label else f"Live run — {run_id}",
+        "description": f"Auto-recorded from a live investigation. POI: {poi}" if poi
+                       else "Auto-recorded from a live investigation.",
         "poi": {"value": poi},
         "hosts": sorted({e["host"] for e in events if e.get("host")}),
         "stages": observability.STAGES,
